@@ -67,6 +67,16 @@ on:
         type: boolean
         default: true
 
+      BUILD_DS:
+        description: "Build with Droidspaces support"
+        type: boolean
+        default: true
+
+      BUILD_COMPAT:
+        description: "Build Compat Variant"
+        type: boolean
+        default: true
+
 env:
   MAN_DISABLE: true
   DEBIAN_FRONTEND: noninteractive
@@ -105,6 +115,14 @@ jobs:
             ENTRIES="${ENTRIES}{\"name\":\"Compat+KSUN+SUSFS\",\"KSU\":\"KSUN\",\"KSU_COMPAT\":\"true\",\"KSU_SUSFS\":\"true\"},"
             ENTRIES="${ENTRIES}{\"name\":\"SKSU+SUSFS\",\"KSU\":\"SKSU\",\"KSU_COMPAT\":\"false\",\"KSU_SUSFS\":\"true\"},"
             ENTRIES="${ENTRIES}{\"name\":\"RSKSU+SUSFS\",\"KSU\":\"RSKSU\",\"KSU_COMPAT\":\"false\",\"KSU_SUSFS\":\"true\"},"
+          fi
+
+          if [[ "${{ github.event.inputs.BUILD_DS }}" == "true" ]]; then
+            ENTRIES="${ENTRIES}{\"DROIDSPACES\":\"true\"},"
+          fi
+
+          if [[ "${{ github.event.inputs.BUILD_COMPAT }}" == "true" ]]; then
+            ENTRIES="${ENTRIES}{\"KSU_COMPAT\":\"true\"},"
           fi
 
           # Remove trailing comma and wrap in array

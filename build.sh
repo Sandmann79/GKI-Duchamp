@@ -236,6 +236,10 @@ if [ "$KSU_COMPAT" = "true" ]; then
   VARIANT="Compat+${VARIANT}"
 fi
 
+if [ "$DROIDSPACES" = "true" ]; then
+  VARIANT="DS+${VARIANT}"
+fi
+
 # Replace Placeholder in zip name
 AK3_ZIP_NAME=${AK3_ZIP_NAME//KVER/$LINUX_VERSION}
 AK3_ZIP_NAME=${AK3_ZIP_NAME//VARIANT/$VARIANT}
