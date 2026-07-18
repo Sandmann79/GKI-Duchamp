@@ -50,22 +50,22 @@ on:
       BUILD_KSU:
         description: "Build with KernelSU"
         type: boolean
-        default: true
+        default: false
 
       BUILD_KSUN:
         description: "Build with KernelSU-Next"
         type: boolean
-        default: true
+        default: false
 
       BUILD_SKSU:
         description: "Build with SukiSU-Ultra"
         type: boolean
-        default: true
+        default: false
 
       BUILD_KSU_SUSFS:
-        description: "Build with KernelSU and its forks (SukiSU Ultra, KernelSU Next) + SUSFS"
+        description: "Second Build with SUSFS"
         type: boolean
-        default: true
+        default: false
 
       BUILD_DS:
         description: "Build with Droidspaces support"
@@ -88,49 +88,49 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - id: set-matrix
+        env:
+          BUILD_VANILLA: ${{ github.event.inputs.BUILD_VANILLA }}
+          BUILD_KSU: ${{ github.event.inputs.BUILD_KSU }}
+          BUILD_KSUN: ${{ github.event.inputs.BUILD_KSUN }}
+          BUILD_SKSU: ${{ github.event.inputs.BUILD_SKSU }}
+          BUILD_KSU_SUSFS: ${{ github.event.inputs.BUILD_KSU_SUSFS }}
+          BUILD_DS: ${{ github.event.inputs.BUILD_DS }}
+          BUILD_COMPAT: ${{ github.event.inputs.BUILD_COMPAT }}
         run: |
-          # Build JSON array manually
-          ENTRIES=""
+          MATRIX_JSON=$(jq -n -c '
+            # 1. Basis-Kernel sammeln
+            [] 
+            | if env.BUILD_VANILLA == "true" then . + [{"name": "Vanilla", "KSU": "no"}] else . end
+            | if env.BUILD_KSU     == "true" then . + [{"name": "KSU",     "KSU": "KSU"}] else . end
+            | if env.BUILD_KSUN    == "true" then . + [{"name": "KSUN",    "KSU": "KSUN"}] else . end
+            | if env.BUILD_SKSU    == "true" then . + [{"name": "SKSU",    "KSU": "SKSU"}] else . end
+            
+            # 2. SUSFS optional hinzufügen (Verdopplung: Variante ohne + Variante mit SUSFS)
+            | if env.BUILD_KSU_SUSFS == "true" then
+                map(. + {"KSU_SUSFS": "false"}) + map(. + {"KSU_SUSFS": "true", "name": (.name + "+SUSFS")})
+              else
+                map(. + {"KSU_SUSFS": "false"})
+              end
 
-          if [[ "${{ github.event.inputs.BUILD_VANILLA }}" == "true" ]]; then
-            ENTRIES="${ENTRIES}{\"name\":\"Vanilla\",\"KSU\":\"no\",\"KSU_COMPAT\":\"false\",\"KSU_SUSFS\":\"false\"},"
-          fi
+            # 3. DROIDSPACES optional hinzufügen
+            | if env.BUILD_DS == "true" then
+                map(. + {"DROIDSPACES": "true", "name": (.name + "-DS")})
+              else
+                map(. + {"DROIDSPACES": "false"})
+              end
 
-          if [[ "${{ github.event.inputs.BUILD_KSU }}" == "true" ]]; then
-            ENTRIES="${ENTRIES}{\"name\":\"KSU\",\"KSU\":\"KSU\",\"KSU_COMPAT\":\"false\",\"KSU_SUSFS\":\"false\"},"
-          fi
+            # 4. COMPAT optional hinzufügen
+            | if env.BUILD_COMPAT == "true" then
+                map(. + {"KSU_COMPAT": "true", "name": ("Compat-" + .name)})
+              else
+                map(. + {"KSU_COMPAT": "false"})
+              end
 
-          if [[ "${{ github.event.inputs.BUILD_KSUN }}" == "true" ]]; then
-            ENTRIES="${ENTRIES}{\"name\":\"KSUN\",\"KSU\":\"KSUN\",\"KSU_COMPAT\":\"false\",\"KSU_SUSFS\":\"false\"},"
-          fi
+            # 5. In das finale Matrix-Format verpacken
+            | {include: .}
+          ')
 
-          if [[ "${{ github.event.inputs.BUILD_SKSU }}" == "true" ]]; then
-            ENTRIES="${ENTRIES}{\"name\":\"SKSU\",\"KSU\":\"SKSU\",\"KSU_COMPAT\":\"false\",\"KSU_SUSFS\":\"false\"},"
-          fi
-
-          if [[ "${{ github.event.inputs.BUILD_KSU_SUSFS }}" == "true" ]]; then
-            ENTRIES="${ENTRIES}{\"name\":\"KSU+SUSFS\",\"KSU\":\"KSU\",\"KSU_COMPAT\":\"false\",\"KSU_SUSFS\":\"true\"},"
-            ENTRIES="${ENTRIES}{\"name\":\"KSUN+SUSFS\",\"KSU\":\"KSUN\",\"KSU_COMPAT\":\"false\",\"KSU_SUSFS\":\"true\"},"
-            ENTRIES="${ENTRIES}{\"name\":\"Compat+KSU+SUSFS\",\"KSU\":\"KSU\",\"KSU_COMPAT\":\"true\",\"KSU_SUSFS\":\"true\"},"
-            ENTRIES="${ENTRIES}{\"name\":\"Compat+KSUN+SUSFS\",\"KSU\":\"KSUN\",\"KSU_COMPAT\":\"true\",\"KSU_SUSFS\":\"true\"},"
-            ENTRIES="${ENTRIES}{\"name\":\"SKSU+SUSFS\",\"KSU\":\"SKSU\",\"KSU_COMPAT\":\"false\",\"KSU_SUSFS\":\"true\"},"
-            ENTRIES="${ENTRIES}{\"name\":\"RSKSU+SUSFS\",\"KSU\":\"RSKSU\",\"KSU_COMPAT\":\"false\",\"KSU_SUSFS\":\"true\"},"
-          fi
-
-          if [[ "${{ github.event.inputs.BUILD_DS }}" == "true" ]]; then
-            ENTRIES="${ENTRIES}{\"DROIDSPACES\":\"true\"},"
-          fi
-
-          if [[ "${{ github.event.inputs.BUILD_COMPAT }}" == "true" ]]; then
-            ENTRIES="${ENTRIES}{\"KSU_COMPAT\":\"true\"},"
-          fi
-
-          # Remove trailing comma and wrap in array
-          ENTRIES="[${ENTRIES%,}]"
-
-          # Output matrix
-          echo "matrix={\"include\":${ENTRIES}}" >> $GITHUB_OUTPUT
-
+          echo "matrix=${MATRIX_JSON}" >> $GITHUB_OUTPUT
   build:
     needs: prepare
     runs-on: ubuntu-latest
