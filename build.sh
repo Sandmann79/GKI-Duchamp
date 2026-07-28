@@ -72,7 +72,7 @@ SUSFS_BRANCH="gki-android14-6.1"
 SUSFS_PATCH="gki-android14-6.1"
 
 log "Changelog of repos"
-gh api "repos/ahmed-alnassif/android_kernel_common-6.1/commits?sha=${KERNEL_BRANCH}&per_page=10" --jq '.[] | "- [" + .sha[0:7] + "](" + .html_url + ") " + (.commit.message | split("\n")[0])'\
+gh api "repos/ahmed-alnassif/GKI-Duchamp-6.1/commits?sha=${KERNEL_BRANCH}&per_page=10" --jq '.[] | "- [" + .sha[0:7] + "](" + .html_url + ") " + (.commit.message | split("\n")[0])'\
 > "$RELEASE_DIR/android_kernel-6.1_changelog.txt"
 gh api 'repos/tiann/KernelSU/commits?sha=main&per_page=10' --jq '.[] | "- [" + .sha[0:7] + "](" + .html_url + ") " + (.commit.message | split("\n")[0])'\
 > "$RELEASE_DIR/ksu_changelog.txt"
@@ -187,8 +187,8 @@ if [ "$KSU" = "KSU" ]; then
     patch -p1 --fuzz=3 < "$WORKDIR/patches/0001-feat-escape-persistent_allow_list-to-kthread.patch"
     patch -p1 --fuzz=3 < "$WORKDIR/patches/0001-feat-supercalls-allow-userspace-to-pull-list-entries.patch"
     sed -i "/    git pull && echo \"\[+\] Repository updated.\"/d" "kernel/setup.sh"
-    git config --global user.email "mr.ahmed.nassif@gmail.com"
-    git config --global user.name "Ahmed Al-Nassif"
+    git config --global user.email "sandmann79@gmx.net"
+    git config --global user.name "Sandmann79"
     git add .
     git commit -m "susfs patch"
     cd ..
