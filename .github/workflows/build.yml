@@ -196,8 +196,8 @@ jobs:
         if: always()
         run: |
           cat > build-env-${{ matrix.name }}.txt << EOF
-          KERNEL_REPO=${{ env.KERNEL_REPO }}
-          KERNEL_BRANCH=${{ env.KERNEL_BRANCH }}
+          KERNEL_REPO=${{ inputs.REPO }}
+          KERNEL_BRANCH=${{ inputs.BRANCH }}
           RELEASE_REPO=${{ env.RELEASE_REPO }}
           KERNEL_NAME=${{ env.KERNEL_NAME }}
           RELEASE_NAME=${{ env.RELEASE_NAME }}
@@ -325,8 +325,8 @@ jobs:
 
             **Build Information:**
             - 🐧 **Kernel:** ${{ env.RELEASE_NAME }}
-            - 🌐 **Repository:** ${{ env.KERNEL_REPO }}
-            - 🌵 **Branch:** ${{ env.KERNEL_BRANCH }}
+            - 🌐 **Repository:** ${{ inputs.REPO }}
+            - 🌵 **Branch:** ${{ inputs.BRANCH }}
             - 🔖 **Version:** ${{ env.LINUX_VERSION }} (android14-6.1-lts)
             - 📦 **Variants:**
             $(echo "$VARIANTS" | sed 's/^/  - /')
@@ -379,10 +379,10 @@ jobs:
               echo "*No changelog available*"
             fi
             echo ""
-            if [[ "${{ env.KERNEL_REPO }}" == *"android.googlesource.com"* ]]; then
-                echo "**Full Commit History:** [Browse all commits](${{ env.KERNEL_REPO }}/+log/refs/heads/${{ env.KERNEL_BRANCH }})"
+            if [[ "${{ inputs.REPO }}" == *"android.googlesource.com"* ]]; then
+                echo "**Full Commit History:** [Browse all commits](${{ inputs.REPO }}/+log/refs/heads/${{ inputs.BRANCH }})"
             else
-                echo "**Full Commit History:** [Browse all commits](${{ env.KERNEL_REPO }}/commits/${{ env.KERNEL_BRANCH }})"
+                echo "**Full Commit History:** [Browse all commits](${{ inputs.REPO }}/commits/${{ inputs.BRANCH }})"
             fi
             echo ""
             echo "---"
