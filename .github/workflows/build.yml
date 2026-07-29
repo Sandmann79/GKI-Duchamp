@@ -325,6 +325,8 @@ jobs:
 
             **Build Information:**
             - 🐧 **Kernel:** ${{ env.RELEASE_NAME }}
+            - 🌐 **Repository:** ${{ env.KERNEL_REPO }}
+            - 🌵 **Branch:** ${{ env.KERNEL_BRANCH }}
             - 🔖 **Version:** ${{ env.LINUX_VERSION }} (android14-6.1-lts)
             - 📦 **Variants:**
             $(echo "$VARIANTS" | sed 's/^/  - /')
