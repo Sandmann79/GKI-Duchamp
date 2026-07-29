@@ -115,7 +115,7 @@ echo "COMPILER_STRING=$COMPILER_STRING" >> $GITHUB_ENV
 
 cd $KSRC
 
-patch -p1 --fuzz=3 < $KERNEL_PATCHES/remove_ifdef_wrapping_of key_pass_declaration.patch
+patch -p1 --fuzz=3 < $KERNEL_PATCHES/fix_key_pass_declaration.patch
 
 log "Applying BBRv3 patch"
 patch -p1 --fuzz=3 < $KERNEL_PATCHES/bbrv3/bbrv3.patch
