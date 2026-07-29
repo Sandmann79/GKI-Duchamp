@@ -1,30 +1,17 @@
 name: GKI-Duchamp Builder
 
 on:
-  workflow_call:
-    inputs:
-      TODO:
-        type: string
-      KSU:
-        type: string
-      KSU_SUSFS:
-        type: string
-      LAST_BUILD:
-        type: string
-      STATUS:
-        type: string
-      TEST:
-        type: string
-
   workflow_dispatch:
     inputs:
-      TODO:
-        description: To do
-        default: "kernel"
-        type: choice
-        options:
-          - "kernel"
-          - "defconfig"
+      REPO:
+        description: Kernel Repo URL
+        default: "https://android.googlesource.com/kernel/common"
+        type: string
+
+      BRANCH:
+        description: Kernel Branch
+        default: "android14-6.1"
+        type: string
 
       STATUS:
         description: Run type
@@ -151,7 +138,6 @@ jobs:
         env:
           KSU: ${{ matrix.KSU }}
           KSU_SUSFS: ${{ matrix.KSU_SUSFS }}
-          KERNEL_REPO: ${{ secrets.KERNEL_REPO }}
         run: |
           _error() {
               echo "❌ ERROR: $*"
@@ -185,12 +171,11 @@ jobs:
       - name: Run Build Script
         env:
           GH_TOKEN: ${{ github.token }}
-          KERNEL_REPO: https://github.com/ahmed-alnassif/GKI-Duchamp-6.1
+          KERNEL_REPO: ${{ inputs.REPO }}
+          KERNEL_BRANCH: ${{ inputs.BRANCH }}
           KSU: ${{ matrix.KSU }}
           KSU_COMPAT: ${{ matrix.KSU_COMPAT }}
           KSU_SUSFS: ${{ matrix.KSU_SUSFS }}
-          LAST_BUILD: ${{ inputs.LAST_BUILD }}
-          TODO: ${{ inputs.TODO }}
           STATUS: ${{ inputs.STATUS }}
           TEST: ${{ inputs.TEST }}
           BUILD_NAME: ${{ matrix.name }}
@@ -209,6 +194,8 @@ jobs:
         if: always()
         run: |
           cat > build-env-${{ matrix.name }}.txt << EOF
+          KERNEL_REPO=${{ env.KERNEL_REPO }}
+          KERNEL_BRANCH=${{ env.KERNEL_BRANCH }}
           RELEASE_REPO=${{ env.RELEASE_REPO }}
           KERNEL_NAME=${{ env.KERNEL_NAME }}
           RELEASE_NAME=${{ env.RELEASE_NAME }}
@@ -262,7 +249,7 @@ jobs:
 
   release:
     needs: build
-    if: github.event.inputs.TODO != 'defconfig' && github.event.inputs.STATUS == 'RELEASE'
+    if: github.event.inputs.STATUS == 'RELEASE'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
@@ -388,7 +375,11 @@ jobs:
               echo "*No changelog available*"
             fi
             echo ""
-            echo "**Full Commit History:** [Browse all commits](https://github.com/ahmed-alnassif/GKI-Duchamp-6.1/commits/GKID-6.1)"
+            if [[ "${{ env.KERNEL_REPO }}" == *"android.googlesource.com"* ]]; then
+                echo "**Full Commit History:** [Browse all commits](${{ env.KERNEL_REPO }}/+log/refs/heads/${{ env.KERNEL_BRANCH }})"
+            else
+                echo "**Full Commit History:** [Browse all commits](${{ env.KERNEL_REPO }}/commits/${{ env.KERNEL_BRANCH }})"
+            fi
             echo ""
             echo "---"
             echo "**KernelSU Changelog (last 10 commits):**"
