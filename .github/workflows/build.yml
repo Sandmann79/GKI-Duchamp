@@ -97,7 +97,9 @@ jobs:
             
             # 2. SUSFS optional hinzufügen (Verdopplung: Variante ohne + Variante mit SUSFS)
             | if env.BUILD_KSU_SUSFS == "true" then
-                map(. + {"KSU_SUSFS": "false"}) + map(. + {"KSU_SUSFS": "true", "name": (.name + "+SUSFS")})
+                map(. + {"KSU_SUSFS": "false"}) 
+                + 
+                (map(select(.KSU != "no") | . + {"KSU_SUSFS": "true", "name": (.name + "+SUSFS")}))
               else
                 map(. + {"KSU_SUSFS": "false"})
               end
