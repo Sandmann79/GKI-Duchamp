@@ -1,0 +1,110 @@
+diff --git a/drivers/Kconfig b/drivers/Kconfig
+index 43ee06af4790..32157ab80340 100644
+--- a/drivers/Kconfig
++++ b/drivers/Kconfig
+@@ -241,4 +241,6 @@ source "drivers/hte/Kconfig"
+ 
+ source "drivers/xiaomi/Kconfig"
+ 
++source "drivers/kprofiles/Kconfig"
++
+ endmenu
+diff --git a/drivers/Makefile b/drivers/Makefile
+index 967463efed7e..493c6ad2fbd4 100644
+--- a/drivers/Makefile
++++ b/drivers/Makefile
+@@ -190,3 +190,4 @@ obj-$(CONFIG_MOST)		+= most/
+ obj-$(CONFIG_PECI)		+= peci/
+ obj-$(CONFIG_HTE)		+= hte/
+ obj-y				+= xiaomi/
++obj-$(CONFIG_KPROFILES)		+= kprofiles/
+diff --git a/kernel/cgroup/cgroup-v1.c b/kernel/cgroup/cgroup-v1.c
+index 33aed7251c0f..a5ddf165e33d 100644
+--- a/kernel/cgroup/cgroup-v1.c
++++ b/kernel/cgroup/cgroup-v1.c
+@@ -488,6 +488,8 @@ static int cgroup_pidlist_show(struct seq_file *s, void *v)
+ 	return 0;
+ }
+ 
++extern int kp_active_mode(void);
++
+ static ssize_t __cgroup1_procs_write(struct kernfs_open_file *of,
+ 				     char *buf, size_t nbytes, loff_t off,
+ 				     bool threadgroup)
+@@ -529,7 +531,7 @@ static ssize_t __cgroup1_procs_write(struct kernfs_open_file *of,
+ 	/* This covers boosting for app launches and app transitions */
+ 	if (!ret && !threadgroup &&
+ 		!memcmp(of->kn->parent->name, "top-app", sizeof("top-app")) &&
+-		task_is_zygote(task->parent)) {
++		task_is_zygote(task->parent) && kp_active_mode() != 1) {
+ 		cpu_boost_max(500);
+ 	}
+ 
+diff --git a/kernel/cgroup/cgroup.c b/kernel/cgroup/cgroup.c
+index 0b8f006d6be2..d5eed0582f57 100644
+--- a/kernel/cgroup/cgroup.c
++++ b/kernel/cgroup/cgroup.c
+@@ -5212,6 +5212,8 @@ static int cgroup_attach_permissions(struct cgroup *src_cgrp,
+ 	return ret;
+ }
+ 
++extern int kp_active_mode(void);
++
+ static ssize_t __cgroup_procs_write(struct kernfs_open_file *of, char *buf,
+ 				    bool threadgroup)
+ {
+@@ -5254,7 +5256,7 @@ static ssize_t __cgroup_procs_write(struct kernfs_open_file *of, char *buf,
+ 	/* This covers boosting for app launches and app transitions */
+ 	if (!ret && !threadgroup &&
+ 	    !memcmp(of->kn->parent->name, "top-app", sizeof("top-app")) &&
+-	    task_is_zygote(task->parent)) {
++	    task_is_zygote(task->parent) && kp_active_mode() != 1) {
+ 		cpu_boost_max(500);
+ 	}
+ 
+diff --git a/kernel/fork.c b/kernel/fork.c
+index 152705c1c485..a26184a41efc 100644
+--- a/kernel/fork.c
++++ b/kernel/fork.c
+@@ -2823,6 +2823,8 @@ struct task_struct *create_io_thread(int (*fn)(void *), void *arg, int node)
+ 	return copy_process(NULL, 0, node, &args);
+ }
+ 
++extern int kp_active_mode(void);
++
+ /*
+  *  Ok, this is the main fork-routine.
+  *
+@@ -2854,8 +2856,8 @@ pid_t kernel_clone(struct kernel_clone_args *args)
+ 	    (args->pidfd == args->parent_tid))
+ 		return -EINVAL;
+ 
+-	/* Boost CPUs to the max for 100 ms when userspace launches an app */
+-	if (task_is_zygote(current))
++        /* Boost CPUs to the max for 100 ms when userspace launches an app */
++        if (task_is_zygote(current) && kp_active_mode() != 1)
+ 		cpu_boost_max(100);
+ 
+ 	/*
+diff --git a/drivers/kprofiles/main.c b/drivers/kprofiles/main.c
+index 10388a466596..ef3fee64813e 100644
+--- a/drivers/kprofiles/main.c
++++ b/drivers/kprofiles/main.c
+@@ -41,7 +41,7 @@ EXPORT_SYMBOL_GPL(KP_MODE_CHANGE);
+ static unsigned int kp_override_mode;
+ static bool kp_override;
+ 
+-static bool auto_kp __read_mostly = 0
++static bool auto_kp __read_mostly = 0;
+ module_param(auto_kp, bool, 0664);
+ MODULE_PARM_DESC(auto_kp, "Enable/disable automatic kernel profile management");
+ 
+@@ -169,6 +169,8 @@ int kp_active_mode(void)
+ 		kp_trigger_mode_change_event();
+ 		kp_err("Invalid value passed, falling back to level 0\n");
+ 	}
++	if (READ_ONCE(kp_mode) == 0)
++		WRITE_ONCE(kp_mode, 2);
+ 
+ 	return READ_ONCE(kp_mode);
+ }

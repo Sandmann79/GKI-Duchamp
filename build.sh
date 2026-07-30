@@ -170,6 +170,13 @@ log "BBG included"
 wget -qO- "https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh" | bash
 sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' "security/Kconfig"
 
+log "Applying Bore scheduler"
+patch -p1 --fuzz=3 < $KERNEL_PATCHES/bore/bore_sched.patch
+
+log "Applying Kprofiles"
+git clone --depth=1 -q "https://github.com/beakthoven/Kprofiles" "$KSRC/drivers/kprofiles"
+patch -p1 --fuzz=3 < $KERNEL_PATCHES/kprofiles/kprofiles.patch
+
 if [ "$KSU" = "SKSU" ]; then
   log "SukiSU-Ultra included"
   if susfs_included; then
