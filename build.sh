@@ -161,6 +161,9 @@ if [[ "$KERNEL_REPO" != *"ahmed-alnassif"* ]]; then
 
     log "Applying unicode_bypass_fix_6.1.patch"
     patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/unicode_bypass_fix_6.1.patch"
+    
+    log "Applying Bore scheduler"
+    patch -p1 --fuzz=3 < $KERNEL_PATCHES/bore/bore_sched.patch
 fi
 
 log "Applying BBRv3 patch"
@@ -169,6 +172,12 @@ patch -p1 --fuzz=3 < $KERNEL_PATCHES/bbrv3/bbrv3.patch
 log "BBG included"
 wget -qO- "https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh" | bash
 sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' "security/Kconfig"
+
+log "Applying Kprofiles"
+git clone --depth=1 -q "https://github.com/beakthoven/Kprofiles" "$KSRC/drivers/kprofiles"
+patch -p1 --fuzz=3 < $KERNEL_PATCHES/kprofiles/01-cpu_boost.patch
+patch -p1 --fuzz=3 < $KERNEL_PATCHES/kprofiles/02-implement_input_handler.patch
+patch -p1 --fuzz=3 < $KERNEL_PATCHES/kprofiles/03-kprofiles.patch
 
 if [ "$KSU" = "SKSU" ]; then
   log "SukiSU-Ultra included"
@@ -221,7 +230,7 @@ if [ "$KSU" = "KSU" ]; then
   fi
 
   if susfs_included; then
-    VARIANT+="+Multiple-Managers"
+    VARIANT+="+MM"
     git clone "https://github.com/tiann/KernelSU" && echo "[+] Repository cloned."
     log "SUSFS included"
     git clone --depth=1 -q "$SUSFS_URL" -b "$SUSFS_BRANCH" "$SUSFS_DIR"
@@ -282,11 +291,11 @@ if [ "$KSU" = "KSUN" ]; then
 fi
 
 if [ "$KSU_COMPAT" = "true" ]; then
-  VARIANT="Compat+${VARIANT}"
+  VARIANT+="Compat"
 fi
 
 if [ "$DROIDSPACES" = "true" ]; then
-  VARIANT="DS+${VARIANT}"
+  VARIANT+="DS"
 fi
 
 # Replace Placeholder in zip name
@@ -362,12 +371,9 @@ if [ "$TEST" = "yes" ]; then
   exit 0
 fi
 
-if [[ $TODO == "defconfig" ]]; then
-  log "Copying defconfig..."
-  mkdir -p "$RELEASE_DIR"
-  cp "$OUTDIR/.config" "$RELEASE_DIR/config-${VARIANT}.txt"
-  exit 0
-fi
+log "Copying defconfig..."
+mkdir -p "$RELEASE_DIR"
+cp "$OUTDIR/.config" "$RELEASE_DIR/config-${VARIANT}.txt"
 
 # Build the actual kernel
 log "Building kernel..."

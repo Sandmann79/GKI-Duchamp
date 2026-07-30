@@ -1,0 +1,823 @@
+diff --git a/drivers/cpufreq/Kconfig b/drivers/cpufreq/Kconfig
+index f94426506fe2..29df789b5e01 100644
+--- a/drivers/cpufreq/Kconfig
++++ b/drivers/cpufreq/Kconfig
+@@ -260,6 +260,40 @@ config CPUFREQ_DUMMY
+ 
+ 	  If in doubt, say N
+ 
++config CPU_BOOSTING
++	bool "CPU frequency boost helper"
++	depends on CPU_FREQ && PM
++	help
++	  A simple driver for kernelspace cpufreq policy boosting
++
++menu "CPU Boosting presets"
++    depends on CPU_BOOSTING
++
++config CPU_BOOST_KICK_KHZ_LITTLE
++    int "Preset min freq for LITTLE cluster (KHz)"
++    default 0
++    help
++      Minimum KHz for LITTLE (CPUs 0-1); 0 disables for this tier.
++
++config CPU_BOOST_KICK_KHZ_MID
++    int "Preset min freq for MID cluster (KHz)"
++    default 0
++    help
++      Minimum KHz for MID (CPUs 2-4); 0 disables for this tier.
++
++config CPU_BOOST_KICK_KHZ_BIG
++    int "Preset min freq for BIG cluster (KHz)"
++    default 0
++    help
++      Minimum KHz for BIG (CPUs 5-6); 0 disables for this tier.
++
++config CPU_BOOST_KICK_KHZ_PRIME
++    int "Preset min freq for PRIME cluster (KHz)"
++    default 0
++    help
++      Minimum KHz for PRIME (CPU 7); 0 disables for this tier.
++endmenu
++
+ if X86
+ source "drivers/cpufreq/Kconfig.x86"
+ endif
+diff --git a/drivers/cpufreq/Makefile b/drivers/cpufreq/Makefile
+index f75a876e3e62..699152bd3777 100644
+--- a/drivers/cpufreq/Makefile
++++ b/drivers/cpufreq/Makefile
+@@ -121,3 +121,5 @@ obj-$(CONFIG_LOONGSON1_CPUFREQ)		+= loongson1-cpufreq.o
+ obj-$(CONFIG_SH_CPU_FREQ)		+= sh-cpufreq.o
+ obj-$(CONFIG_SPARC_US2E_CPUFREQ)	+= sparc-us2e-cpufreq.o
+ obj-$(CONFIG_SPARC_US3_CPUFREQ)		+= sparc-us3-cpufreq.o
++
++obj-$(CONFIG_CPU_BOOSTING)		+= cpu_boost.o
+diff --git a/drivers/cpufreq/cpu_boost.c b/drivers/cpufreq/cpu_boost.c
+new file mode 100644
+index 000000000000..0371e7777d7b
+--- /dev/null
++++ b/drivers/cpufreq/cpu_boost.c
+@@ -0,0 +1,225 @@
++// SPDX-License-Identifier: GPL-2.0
++#include <linux/init.h>
++#include <linux/export.h>
++#include <linux/kernel.h>
++#include <linux/cpu.h>
++#include <linux/cpufreq.h>
++#include <linux/pm_qos.h>
++#include <linux/workqueue.h>
++#include <linux/threads.h>
++#include <linux/bitops.h>
++#include <linux/bitmap.h>
++#include <linux/jiffies.h>
++#include <linux/atomic.h>
++#include <linux/minmax.h>
++#include <linux/cpu_boost.h>
++#include <linux/spinlock.h>
++
++static struct freq_qos_request boost_max_req[NR_CPUS];
++static DECLARE_BITMAP(boost_max_active, NR_CPUS);
++
++static struct freq_qos_request boost_kick_req[NR_CPUS];
++static DECLARE_BITMAP(boost_kick_active, NR_CPUS);
++
++static DEFINE_SPINLOCK(pending_lock);
++static DECLARE_BITMAP(pending_max_enable, NR_CPUS);
++static DECLARE_BITMAP(pending_kick_enable, NR_CPUS);
++
++static atomic_long_t boost_expires = ATOMIC_LONG_INIT(0);
++
++static struct delayed_work boost_disable_work;
++
++static struct notifier_block boost_policy_nb;
++
++static inline bool boost_window_expired(unsigned long now, unsigned long exp)
++{
++	return time_after(now, exp);
++}
++
++static inline s32 kick_khz_for_cpu(int cpu)
++{
++	if (cpu <= 1)
++		return (s32)CONFIG_CPU_BOOST_KICK_KHZ_LITTLE;
++	else if (cpu <= 4)
++		return (s32)CONFIG_CPU_BOOST_KICK_KHZ_MID;
++	else if (cpu <= 6)
++		return (s32)CONFIG_CPU_BOOST_KICK_KHZ_BIG;
++	else
++		return (s32)CONFIG_CPU_BOOST_KICK_KHZ_PRIME;
++}
++
++static void cpu_boost_worker(struct work_struct *work)
++{
++	unsigned long now = jiffies;
++	unsigned long exp = atomic_long_read(&boost_expires);
++	unsigned long delay;
++	unsigned long flags;
++	DECLARE_BITMAP(en_max, NR_CPUS);
++	DECLARE_BITMAP(en_kick, NR_CPUS);
++	int cpu, leader;
++	struct cpufreq_policy *policy;
++	s32 max_khz, req_khz;
++
++	bitmap_zero(en_max, NR_CPUS);
++	bitmap_zero(en_kick, NR_CPUS);
++
++	spin_lock_irqsave(&pending_lock, flags);
++	if (!bitmap_empty(pending_max_enable, NR_CPUS))
++		bitmap_copy(en_max, pending_max_enable, NR_CPUS);
++
++	if (!bitmap_empty(pending_kick_enable, NR_CPUS))
++		bitmap_copy(en_kick, pending_kick_enable, NR_CPUS);
++
++	bitmap_zero(pending_max_enable, NR_CPUS);
++	bitmap_zero(pending_kick_enable, NR_CPUS);
++	spin_unlock_irqrestore(&pending_lock, flags);
++
++	cpus_read_lock();
++	for_each_online_cpu(cpu) {
++		policy = cpufreq_cpu_get(cpu);
++		if (!policy)
++			continue;
++
++		leader = policy->cpu;
++		if (cpu == leader) {
++			if (test_bit(leader, en_max)) {
++				max_khz = (s32)policy->cpuinfo.max_freq;
++				if (!test_bit(leader, boost_max_active)) {
++					if (freq_qos_add_request(&policy->constraints,
++								 &boost_max_req[leader],
++								 FREQ_QOS_MIN, max_khz) < 0) {
++					} else {
++						__set_bit(leader, boost_max_active);
++					}
++				} else {
++					(void)freq_qos_update_request(&boost_max_req[leader], max_khz);
++				}
++			}
++
++			if (test_bit(leader, en_kick)) {
++				max_khz = (s32)policy->cpuinfo.max_freq;
++				req_khz = kick_khz_for_cpu(leader);
++				if (req_khz > 0) {
++					if (req_khz > max_khz)
++						req_khz = max_khz;
++					if (!test_bit(leader, boost_kick_active)) {
++						if (freq_qos_add_request(&policy->constraints,
++									 &boost_kick_req[leader],
++									 FREQ_QOS_MIN, req_khz) < 0) {
++						} else {
++							__set_bit(leader, boost_kick_active);
++						}
++					} else {
++						(void)freq_qos_update_request(&boost_kick_req[leader], req_khz);
++					}
++				}
++			}
++		}
++		cpufreq_cpu_put(policy);
++	}
++
++	now = jiffies;
++	exp = atomic_long_read(&boost_expires);
++	if (!boost_window_expired(now, exp)) {
++		delay = time_after(exp, now) ? exp - now : 0;
++		cpus_read_unlock();
++		mod_delayed_work(system_unbound_wq, &boost_disable_work, delay);
++		return;
++	}
++
++	for_each_online_cpu(cpu) {
++		policy = cpufreq_cpu_get(cpu);
++		if (!policy)
++			continue;
++
++		leader = policy->cpu;
++		if (cpu == leader) {
++			if (test_and_clear_bit(leader, boost_max_active))
++				freq_qos_remove_request(&boost_max_req[leader]);
++
++			if (test_and_clear_bit(leader, boost_kick_active))
++				freq_qos_remove_request(&boost_kick_req[leader]);
++		}
++		cpufreq_cpu_put(policy);
++	}
++	cpus_read_unlock();
++}
++
++void cpu_boost_max(unsigned int duration_ms)
++{
++	unsigned long now = jiffies;
++	unsigned long new_exp = now + msecs_to_jiffies(duration_ms);
++	unsigned long old = atomic_long_read(&boost_expires);
++	unsigned long flags;
++
++	for (;;) {
++		if (time_after(old, new_exp))
++			break;
++
++		if (atomic_long_try_cmpxchg(&boost_expires, &old, new_exp))
++			break;
++	}
++
++	mod_delayed_work(system_unbound_wq, &boost_disable_work, 0);
++	spin_lock_irqsave(&pending_lock, flags);
++	bitmap_fill(pending_max_enable, NR_CPUS);
++	spin_unlock_irqrestore(&pending_lock, flags);
++}
++EXPORT_SYMBOL_GPL(cpu_boost_max);
++
++void cpu_boost_kick(unsigned int duration_ms)
++{
++	unsigned long now = jiffies;
++	unsigned long new_exp = now + msecs_to_jiffies(duration_ms);
++	unsigned long old = atomic_long_read(&boost_expires);
++	unsigned long flags;
++
++	for (;;) {
++		if (time_after(old, new_exp))
++			break;
++
++		if (atomic_long_try_cmpxchg(&boost_expires, &old, new_exp))
++			break;
++	}
++
++	mod_delayed_work(system_unbound_wq, &boost_disable_work, 0);
++	spin_lock_irqsave(&pending_lock, flags);
++	bitmap_fill(pending_kick_enable, NR_CPUS);
++	spin_unlock_irqrestore(&pending_lock, flags);
++}
++EXPORT_SYMBOL_GPL(cpu_boost_kick);
++
++static int boost_policy_notifier(struct notifier_block *nb,
++				 unsigned long val, void *data)
++{
++	struct cpufreq_policy *policy = data;
++	int leader = policy ? policy->cpu : -1;
++
++	if (val == CPUFREQ_REMOVE_POLICY) {
++		if (leader >= 0 && test_and_clear_bit(leader, boost_max_active))
++			freq_qos_remove_request(&boost_max_req[leader]);
++
++		if (leader >= 0 && test_and_clear_bit(leader, boost_kick_active))
++			freq_qos_remove_request(&boost_kick_req[leader]);
++
++		if (leader >= 0) {
++			unsigned long flags;
++			spin_lock_irqsave(&pending_lock, flags);
++			__clear_bit(leader, pending_max_enable);
++			__clear_bit(leader, pending_kick_enable);
++			spin_unlock_irqrestore(&pending_lock, flags);
++		}
++	}
++	return 0;
++}
++
++static int __init cpu_boost_init(void)
++{
++	INIT_DELAYED_WORK(&boost_disable_work, cpu_boost_worker);
++	boost_policy_nb.notifier_call = boost_policy_notifier;
++	cpufreq_register_notifier(&boost_policy_nb, CPUFREQ_POLICY_NOTIFIER);
++	pr_info("cpu_boost driver initialized\n");
++	return 0;
++}
++
++late_initcall(cpu_boost_init);
+diff --git a/drivers/soc/qcom/dcvs/Kconfig b/drivers/soc/qcom/dcvs/Kconfig
+index a07c307365b1..31d7f31147d5 100644
+--- a/drivers/soc/qcom/dcvs/Kconfig
++++ b/drivers/soc/qcom/dcvs/Kconfig
+@@ -189,3 +189,33 @@ config QTI_DYNPF_SCMI
+ 	  userspace and relays them to CPUCP via SCMI communication.
+ 	  It is intended to be used by clients familiar with modifying
+ 	  the DYNPF settings.
++
++config QCOM_DCVS_BOOST
++	tristate "Qualcomm DCVS timed boost (DDR/LLCC/L3)"
++	depends on QCOM_DCVS
++	help
++	  Enable a DCVS booster that temporarily raises the DDR, LLCC,
++	  and L3 DCVS votes to selected kHz for specified duration using
++	  the voter api.
++
++if QCOM_DCVS_BOOST
++
++config QCOM_DCVS_BOOST_KHZ_DDR
++	int "DDR boost preset (kHz)"
++	default 0
++	help
++	  kHz floor to vote on DDR during a boost window; 0 disables DDR boosting.
++
++config QCOM_DCVS_BOOST_KHZ_LLCC
++	int "LLCC boost preset (kHz)"
++	default 0
++	help
++	  kHz floor to vote on LLCC during a boost window; 0 disables LLCC boosting.
++
++config QCOM_DCVS_BOOST_KHZ_L3
++	int "L3 boost preset (kHz)"
++	default 0
++	help
++	  kHz floor to vote on L3 during a boost window; 0 disables L3 boosting.
++
++endif
+diff --git a/drivers/soc/qcom/dcvs/Makefile b/drivers/soc/qcom/dcvs/Makefile
+index 085ed3dc461e..0e548eddc23a 100644
+--- a/drivers/soc/qcom/dcvs/Makefile
++++ b/drivers/soc/qcom/dcvs/Makefile
+@@ -18,3 +18,4 @@ obj-$(CONFIG_QTI_C1DCVS_SCMI_V2)        += c1dcvs_scmi_v2.o
+ obj-$(CONFIG_QTI_MPAM)	+= mpam.o
+ obj-$(CONFIG_QTI_CPUFREQ_STATS_SCMI_V2)	+= cpufreq_stats_scmi_v2.o
+ obj-$(CONFIG_QTI_DYNPF_SCMI)		+= dynpf_scmi.o
++obj-$(CONFIG_QCOM_DCVS_BOOST) += dcvs_boost.o
+diff --git a/drivers/soc/qcom/dcvs/dcvs_boost.c b/drivers/soc/qcom/dcvs/dcvs_boost.c
+new file mode 100644
+index 000000000000..4207b93498bd
+--- /dev/null
++++ b/drivers/soc/qcom/dcvs/dcvs_boost.c
+@@ -0,0 +1,316 @@
++// SPDX-License-Identifier: GPL-2.0-only
++#define pr_fmt(fmt) "qcom-dcvs-boost: " fmt
++
++#include <linux/init.h>
++#include <linux/module.h>
++#include <linux/kernel.h>
++#include <linux/jiffies.h>
++#include <linux/workqueue.h>
++#include <linux/atomic.h>
++#include <linux/mutex.h>
++#include <linux/bitops.h>
++#include <linux/bitmap.h>
++#include <linux/export.h>
++#include <linux/spinlock.h>
++#include <linux/bug.h>
++
++#include <soc/qcom/dcvs.h>
++#include <soc/qcom/dcvs_boost.h>
++
++static const enum dcvs_hw_type boost_hw_list[] = {
++	DCVS_DDR,
++	DCVS_LLCC,
++	DCVS_L3,
++};
++
++#define BOOSTER_NAME	"dcvs_boost"
++
++static DECLARE_BITMAP(registered_hw, NUM_DCVS_HW_TYPES);
++static DECLARE_BITMAP(active_hw, NUM_DCVS_HW_TYPES);
++static DECLARE_BITMAP(active_max_hw, NUM_DCVS_HW_TYPES);
++static DEFINE_MUTEX(boost_lock);
++
++static DEFINE_SPINLOCK(pending_lock);
++static DECLARE_BITMAP(pending_hw, NUM_DCVS_HW_TYPES);
++static DECLARE_BITMAP(pending_max_hw, NUM_DCVS_HW_TYPES);
++
++static atomic_long_t boost_expires = ATOMIC_LONG_INIT(0);
++static struct delayed_work boost_disable_work;
++
++static inline bool boost_window_expired(unsigned long now, unsigned long exp)
++{
++	return time_after(now, exp);
++}
++
++static inline u32 preset_for_hw(enum dcvs_hw_type hw)
++{
++	switch (hw) {
++	case DCVS_DDR:
++		return (u32)CONFIG_QCOM_DCVS_BOOST_KHZ_DDR;
++	case DCVS_LLCC:
++		return (u32)CONFIG_QCOM_DCVS_BOOST_KHZ_LLCC;
++	case DCVS_L3:
++		return (u32)CONFIG_QCOM_DCVS_BOOST_KHZ_L3;
++	default:
++		return 0;
++	}
++}
++
++static int ensure_voter_registered(enum dcvs_hw_type hw)
++{
++	int ret;
++
++	if (test_bit(hw, registered_hw))
++		return 0;
++
++	ret = qcom_dcvs_register_voter(BOOSTER_NAME, hw, DCVS_SLOW_PATH);
++	if (!ret)
++		set_bit(hw, registered_hw);
++
++	return ret;
++}
++
++static int clamp_to_hw_bounds(enum dcvs_hw_type hw, u32 *khz)
++{
++	int ret;
++	u32 min_khz = 0, max_khz = 0;
++
++	ret = qcom_dcvs_hw_minmax_get(hw, &min_khz, &max_khz);
++	if (ret)
++		return ret;
++
++	if (*khz < min_khz)
++		*khz = min_khz;
++	else if (*khz > max_khz)
++		*khz = max_khz;
++
++	return 0;
++}
++
++static int apply_votes(const unsigned long *mask, bool clear)
++{
++	struct dcvs_freq votes[NUM_DCVS_HW_TYPES] = { };
++	u32 update_mask = 0;
++	int i, ret = 0;
++
++	for (i = 0; i < ARRAY_SIZE(boost_hw_list); i++) {
++		enum dcvs_hw_type hw = boost_hw_list[i];
++		u32 khz = clear ? 0 : preset_for_hw(hw);
++		int rc;
++
++		if (!test_bit(hw, mask))
++			continue;
++
++		rc = ensure_voter_registered(hw);
++		if (rc)
++			continue;
++
++		if (!clear && khz) {
++			rc = clamp_to_hw_bounds(hw, &khz);
++			if (rc)
++				continue;
++		}
++
++		votes[hw].hw_type = hw;
++		votes[hw].ib = khz;
++		votes[hw].ab = 0;
++		update_mask |= BIT(hw);
++	}
++
++	if (!update_mask)
++		return 0;
++
++	ret = qcom_dcvs_update_votes(BOOSTER_NAME, votes, update_mask, DCVS_SLOW_PATH);
++	return ret;
++}
++
++static int apply_votes_max(const unsigned long *mask, bool clear)
++{
++	struct dcvs_freq votes[NUM_DCVS_HW_TYPES] = { };
++	u32 update_mask = 0;
++	int i, ret = 0;
++
++	for (i = 0; i < ARRAY_SIZE(boost_hw_list); i++) {
++		enum dcvs_hw_type hw = boost_hw_list[i];
++		u32 min_khz = 0, max_khz = 0;
++		u32 khz;
++		int rc;
++
++		if (!test_bit(hw, mask))
++			continue;
++
++		rc = ensure_voter_registered(hw);
++		if (rc)
++			continue;
++
++		if (clear) {
++			khz = 0;
++		} else {
++			rc = qcom_dcvs_hw_minmax_get(hw, &min_khz, &max_khz);
++			if (rc)
++				continue;
++
++			khz = max_khz;
++		}
++
++		votes[hw].hw_type = hw;
++		votes[hw].ib = khz;
++		votes[hw].ab = 0;
++		update_mask |= BIT(hw);
++	}
++
++	if (!update_mask)
++		return 0;
++
++	ret = qcom_dcvs_update_votes(BOOSTER_NAME, votes, update_mask, DCVS_SLOW_PATH);
++	return ret;
++}
++
++static void dcvs_boost_worker(struct work_struct *work)
++{
++	unsigned long flags;
++	unsigned long en_mask[BITS_TO_LONGS(NUM_DCVS_HW_TYPES)] = { 0 };
++	unsigned long en_max[BITS_TO_LONGS(NUM_DCVS_HW_TYPES)] = { 0 };
++	unsigned long now = jiffies;
++	unsigned long exp = atomic_long_read(&boost_expires);
++	unsigned long delay;
++
++	spin_lock_irqsave(&pending_lock, flags);
++	if (!bitmap_empty(pending_hw, NUM_DCVS_HW_TYPES))
++		bitmap_copy(en_mask, pending_hw, NUM_DCVS_HW_TYPES);
++
++	if (!bitmap_empty(pending_max_hw, NUM_DCVS_HW_TYPES))
++		bitmap_copy(en_max, pending_max_hw, NUM_DCVS_HW_TYPES);
++
++	bitmap_zero(pending_hw, NUM_DCVS_HW_TYPES);
++	bitmap_zero(pending_max_hw, NUM_DCVS_HW_TYPES);
++	spin_unlock_irqrestore(&pending_lock, flags);
++
++	if (!bitmap_empty(en_mask, NUM_DCVS_HW_TYPES) || !bitmap_empty(en_max, NUM_DCVS_HW_TYPES)) {
++		mutex_lock(&boost_lock);
++		if (!bitmap_empty(en_mask, NUM_DCVS_HW_TYPES)) {
++			bitmap_or(active_hw, active_hw, en_mask, NUM_DCVS_HW_TYPES);
++			(void)apply_votes(en_mask, false);
++		}
++		if (!bitmap_empty(en_max, NUM_DCVS_HW_TYPES)) {
++			bitmap_or(active_max_hw, active_max_hw, en_max, NUM_DCVS_HW_TYPES);
++			(void)apply_votes_max(en_max, false);
++		}
++		mutex_unlock(&boost_lock);
++	}
++
++	now = jiffies;
++	exp = atomic_long_read(&boost_expires);
++	if (!boost_window_expired(now, exp)) {
++		delay = time_after(exp, now) ? exp - now : 0;
++		mod_delayed_work(system_unbound_wq, &boost_disable_work, delay);
++		return;
++	}
++
++	mutex_lock(&boost_lock);
++	if (!bitmap_empty(active_hw, NUM_DCVS_HW_TYPES))
++		(void)apply_votes(active_hw, true);
++
++	if (!bitmap_empty(active_max_hw, NUM_DCVS_HW_TYPES))
++		(void)apply_votes_max(active_max_hw, true);
++
++	bitmap_zero(active_hw, NUM_DCVS_HW_TYPES);
++	bitmap_zero(active_max_hw, NUM_DCVS_HW_TYPES);
++	mutex_unlock(&boost_lock);
++}
++
++void qcom_dcvs_bus_boost_kick(unsigned int duration_ms)
++{
++	unsigned long now = jiffies;
++	unsigned long new_exp = now + msecs_to_jiffies(duration_ms);
++	unsigned long old = atomic_long_read(&boost_expires);
++	unsigned long mask[BITS_TO_LONGS(NUM_DCVS_HW_TYPES)] = { 0 };
++	int i;
++
++	for (i = 0; i < ARRAY_SIZE(boost_hw_list); i++) {
++		enum dcvs_hw_type hw = boost_hw_list[i];
++		if (preset_for_hw(hw))
++			__set_bit(hw, mask);
++	}
++
++	if (bitmap_empty(mask, NUM_DCVS_HW_TYPES))
++		return;
++
++	for (;;) {
++		if (time_after(old, new_exp))
++			break;
++
++		if (atomic_long_try_cmpxchg(&boost_expires, &old, new_exp))
++			break;
++	}
++
++	mod_delayed_work(system_unbound_wq, &boost_disable_work, 0);
++
++	{
++		unsigned long flags;
++		spin_lock_irqsave(&pending_lock, flags);
++		bitmap_or(pending_hw, pending_hw, mask, NUM_DCVS_HW_TYPES);
++		spin_unlock_irqrestore(&pending_lock, flags);
++	}
++}
++EXPORT_SYMBOL_GPL(qcom_dcvs_bus_boost_kick);
++
++void qcom_dcvs_bus_boost_kick_max(unsigned int duration_ms)
++{
++	unsigned long now = jiffies;
++	unsigned long new_exp = now + msecs_to_jiffies(duration_ms);
++	unsigned long old = atomic_long_read(&boost_expires);
++	unsigned long mask[BITS_TO_LONGS(NUM_DCVS_HW_TYPES)] = { 0 };
++	int i;
++
++	for (i = 0; i < ARRAY_SIZE(boost_hw_list); i++)
++		__set_bit(boost_hw_list[i], mask);
++
++	for (;;) {
++		if (time_after(old, new_exp))
++			break;
++
++		if (atomic_long_try_cmpxchg(&boost_expires, &old, new_exp))
++			break;
++	}
++
++	mod_delayed_work(system_unbound_wq, &boost_disable_work, 0);
++
++	{
++		unsigned long flags;
++		spin_lock_irqsave(&pending_lock, flags);
++		bitmap_or(pending_max_hw, pending_max_hw, mask, NUM_DCVS_HW_TYPES);
++		spin_unlock_irqrestore(&pending_lock, flags);
++	}
++}
++EXPORT_SYMBOL_GPL(qcom_dcvs_bus_boost_kick_max);
++
++static int __init dcvs_boost_init(void)
++{
++	INIT_DELAYED_WORK(&boost_disable_work, dcvs_boost_worker);
++	BUILD_BUG_ON(NUM_DCVS_HW_TYPES > 32);
++	bitmap_zero(pending_hw, NUM_DCVS_HW_TYPES);
++	bitmap_zero(pending_max_hw, NUM_DCVS_HW_TYPES);
++	pr_info("initialized\n");
++	return 0;
++}
++
++static void __exit dcvs_boost_exit(void)
++{
++	mutex_lock(&boost_lock);
++	if (!bitmap_empty(active_hw, NUM_DCVS_HW_TYPES))
++		(void)apply_votes(active_hw, true);
++
++	if (!bitmap_empty(active_max_hw, NUM_DCVS_HW_TYPES))
++		(void)apply_votes_max(active_max_hw, true);
++	bitmap_zero(active_hw, NUM_DCVS_HW_TYPES);
++	bitmap_zero(active_max_hw, NUM_DCVS_HW_TYPES);
++	mutex_unlock(&boost_lock);
++	cancel_delayed_work_sync(&boost_disable_work);
++}
++
++module_init(dcvs_boost_init);
++module_exit(dcvs_boost_exit);
++
++MODULE_DESCRIPTION("QCOM DCVS timed boost (DDR/LLCC/L3)");
++MODULE_LICENSE("GPL");
+diff --git a/fs/exec.c b/fs/exec.c
+index 05ec9e6966cf..c440e1555102 100644
+--- a/fs/exec.c
++++ b/fs/exec.c
+@@ -82,6 +82,16 @@ int suid_dumpable = 0;
+ static LIST_HEAD(formats);
+ static DEFINE_RWLOCK(binfmt_lock);
+ 
++#define ZYGOTE32_BIN "/system/bin/app_process"
++#define ZYGOTE64_BIN "/system/bin/app_process64"
++static struct signal_struct *zygote32_sig;
++static struct signal_struct *zygote64_sig;
++
++bool task_is_zygote(struct task_struct *p)
++{
++	return p->signal == zygote32_sig || p->signal == zygote64_sig;
++}
++
+ void __register_binfmt(struct linux_binfmt * fmt, int insert)
+ {
+ 	write_lock(&binfmt_lock);
+@@ -1854,6 +1864,13 @@ static int bprm_execve(struct linux_binprm *bprm,
+ 	if (retval < 0)
+ 		goto out;
+ 
++	if (is_global_init(current->parent)) {
++		if (unlikely(!strcmp(filename->name, ZYGOTE32_BIN)))
++			zygote32_sig = current->signal;
++		else if (unlikely(!strcmp(filename->name, ZYGOTE64_BIN)))
++			zygote64_sig = current->signal;
++	}
++
+ 	/* execve succeeded */
+ 	current->fs->in_exec = 0;
+ 	current->in_execve = 0;
+diff --git a/include/linux/binfmts.h b/include/linux/binfmts.h
+index 8d51f69f9f5e..9bb81edb1cad 100644
+--- a/include/linux/binfmts.h
++++ b/include/linux/binfmts.h
+@@ -127,6 +127,7 @@ extern int bprm_change_interp(const char *interp, struct linux_binprm *bprm);
+ int copy_string_kernel(const char *arg, struct linux_binprm *bprm);
+ extern void set_binfmt(struct linux_binfmt *new);
+ extern ssize_t read_code(struct file *, unsigned long, loff_t, size_t);
++extern bool task_is_zygote(struct task_struct *p);
+ 
+ int kernel_execve(const char *filename,
+ 		  const char *const *argv, const char *const *envp);
+diff --git a/include/linux/cpu_boost.h b/include/linux/cpu_boost.h
+new file mode 100644
+index 000000000000..d5bcfd555b7e
+--- /dev/null
++++ b/include/linux/cpu_boost.h
+@@ -0,0 +1,15 @@
++#ifndef _CPU_BOOST_H
++#define _CPU_BOOST_H
++
++#if IS_ENABLED(CONFIG_CPU_BOOSTING)
++void cpu_boost_max(unsigned int duration_ms);
++void cpu_boost_kick(unsigned int duration_ms);
++#else
++static inline void cpu_boost_max(unsigned int duration_ms)
++{
++}
++static inline void cpu_boost_kick(unsigned int duration_ms)
++{
++}
++#endif /* CONFIG_CPU_BOOST_MAX */
++#endif /* _CPU_BOOST_H */
+diff --git a/include/soc/qcom/dcvs_boost.h b/include/soc/qcom/dcvs_boost.h
+new file mode 100644
+index 000000000000..144fbf07f952
+--- /dev/null
++++ b/include/soc/qcom/dcvs_boost.h
+@@ -0,0 +1,17 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef __SOC_QCOM_DCVS_BOOST_H__
++#define __SOC_QCOM_DCVS_BOOST_H__
++
++#if IS_ENABLED(CONFIG_QCOM_DCVS_BOOST)
++void qcom_dcvs_bus_boost_kick(unsigned int duration_ms);
++void qcom_dcvs_bus_boost_kick_max(unsigned int duration_ms);
++#else
++static inline void qcom_dcvs_bus_boost_kick(unsigned int duration_ms)
++{
++}
++static inline void qcom_dcvs_bus_boost_kick_max(unsigned int duration_ms)
++{
++}
++#endif /* CONFIG_QCOM_DCVS_BOOST */
++#endif /* __SOC_QCOM_DCVS_BOOST_H__ */
++
+diff --git a/kernel/cgroup/cgroup-v1.c b/kernel/cgroup/cgroup-v1.c
+index 0e8aac9f1df1..33aed7251c0f 100644
+--- a/kernel/cgroup/cgroup-v1.c
++++ b/kernel/cgroup/cgroup-v1.c
+@@ -15,6 +15,8 @@
+ #include <linux/pid_namespace.h>
+ #include <linux/cgroupstats.h>
+ #include <linux/fs_parser.h>
++#include <linux/binfmts.h>
++#include <linux/cpu_boost.h>
+ 
+ #include <trace/events/cgroup.h>
+ #include <trace/hooks/cgroup.h>
+@@ -524,6 +526,13 @@ static ssize_t __cgroup1_procs_write(struct kernfs_open_file *of,
+ 	ret = cgroup_attach_task(cgrp, task, threadgroup);
+ 	trace_android_vh_cgroup_set_task(ret, task);
+ 
++	/* This covers boosting for app launches and app transitions */
++	if (!ret && !threadgroup &&
++		!memcmp(of->kn->parent->name, "top-app", sizeof("top-app")) &&
++		task_is_zygote(task->parent)) {
++		cpu_boost_max(500);
++	}
++
+ out_finish:
+ 	cgroup_procs_write_finish(task, locked);
+ out_unlock:
+diff --git a/kernel/cgroup/cgroup.c b/kernel/cgroup/cgroup.c
+index c6d5e7b2cf78..0b8f006d6be2 100644
+--- a/kernel/cgroup/cgroup.c
++++ b/kernel/cgroup/cgroup.c
+@@ -59,6 +59,8 @@
+ #include <linux/sched/cputime.h>
+ #include <linux/sched/deadline.h>
+ #include <linux/psi.h>
++#include <linux/binfmts.h>
++#include <linux/cpu_boost.h>
+ #include <net/sock.h>
+ 
+ #define CREATE_TRACE_POINTS
+@@ -5249,6 +5251,13 @@ static ssize_t __cgroup_procs_write(struct kernfs_open_file *of, char *buf,
+ 
+ 	ret = cgroup_attach_task(dst_cgrp, task, threadgroup);
+ 
++	/* This covers boosting for app launches and app transitions */
++	if (!ret && !threadgroup &&
++	    !memcmp(of->kn->parent->name, "top-app", sizeof("top-app")) &&
++	    task_is_zygote(task->parent)) {
++		cpu_boost_max(500);
++	}
++
+ out_finish:
+ 	cgroup_procs_write_finish(task, threadgroup_locked);
+ out_unlock:
+diff --git a/kernel/fork.c b/kernel/fork.c
+index 5d4322b04af8..152705c1c485 100644
+--- a/kernel/fork.c
++++ b/kernel/fork.c
+@@ -100,6 +100,7 @@
+ #include <linux/tick.h>
+ #include <linux/cpufreq_times.h>
+ #include <linux/dma-buf.h>
++#include <linux/cpu_boost.h>
+ 
+ #include <asm/pgalloc.h>
+ #include <linux/uaccess.h>
+@@ -2853,6 +2854,10 @@ pid_t kernel_clone(struct kernel_clone_args *args)
+ 	    (args->pidfd == args->parent_tid))
+ 		return -EINVAL;
+ 
++	/* Boost CPUs to the max for 100 ms when userspace launches an app */
++	if (task_is_zygote(current))
++		cpu_boost_max(100);
++
+ 	/*
+ 	 * Determine whether and which event to report to ptracer.  When
+ 	 * called from kernel_thread or CLONE_UNTRACED is explicitly
