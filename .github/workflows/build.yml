@@ -163,7 +163,7 @@ jobs:
           pip install lxml
 
       - name: Cache ccache
-        uses: actions/cache@v6.1
+        uses: actions/cache@v6
         id: ccache-cache
         with:
           path: ~/.ccache
