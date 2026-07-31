@@ -526,3 +526,5 @@ index 10388a466596..ef3fee64813e 100644
  
  	return READ_ONCE(kp_mode);
  }
+ 
+	/*
