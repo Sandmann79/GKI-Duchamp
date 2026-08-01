@@ -119,6 +119,7 @@ if [[ "$KERNEL_REPO" != *"ahmed-alnassif"* ]]; then
     log "Fix compilation error"
     patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/fix_key_pass_declaration.patch"
     patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/remove_protected_gki_modules.patch"
+    patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/disable_crc_checks.patch"
 
     log "Applying common performance patches"
     patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/optimized_mem_operations.patch"
