@@ -291,12 +291,12 @@ if [ "$KSU" = "KSUN" ]; then
 
 fi
 
-if [ "$KSU_COMPAT" = "true" ]; then
-  VARIANT+="Compat"
+if [ "$DROIDSPACES" = "true" ]; then
+  VARIANT+="+DS"
 fi
 
-if [ "$DROIDSPACES" = "true" ]; then
-  VARIANT+="DS"
+if [ "$KSU_COMPAT" = "true" ]; then
+  VARIANT+="-Compat"
 fi
 
 # Replace Placeholder in zip name
