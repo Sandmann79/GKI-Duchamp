@@ -177,6 +177,7 @@ jobs:
           KERNEL_BRANCH: ${{ inputs.BRANCH }}
           KSU: ${{ matrix.KSU }}
           KSU_COMPAT: ${{ matrix.KSU_COMPAT }}
+          DROIDSPACES: ${{ inputs.BUILD_DS }}
           KSU_SUSFS: ${{ matrix.KSU_SUSFS }}
           STATUS: ${{ inputs.STATUS }}
           TEST: ${{ inputs.TEST }}

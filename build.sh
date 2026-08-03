@@ -5,8 +5,8 @@ WORKDIR="$(pwd)"
 RELEASE_DIR="$WORKDIR/artifacts"
 
 KERNEL_NAME="GKID"
-USER="ahmed-alnassif"
-HOST="GKI-Duchamp"
+USER="Sandmann79"
+HOST="GKI-Peridot"
 TIMEZONE="Asia/Damascus"
 ANYKERNEL_REPO="https://github.com/ahmed-alnassif/AK3-GKID"
 
@@ -118,6 +118,8 @@ cd $KSRC
 if [[ "$KERNEL_REPO" != *"ahmed-alnassif"* ]]; then
     log "Fix compilation error"
     patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/fix_key_pass_declaration.patch"
+    
+    log "Removing Modules check"
     patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/remove_protected_gki_modules.patch"
     patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/disable_crc_checks.patch"
 
@@ -165,6 +167,9 @@ if [[ "$KERNEL_REPO" != *"ahmed-alnassif"* ]]; then
     
     log "Applying Bore scheduler"
     patch -p1 --fuzz=3 < $KERNEL_PATCHES/bore/bore_sched.patch
+    
+    log "Fix screen flickering"
+    patch -p1 --fuzz=3 < $KERNEL_PATCHES/common/fix_screen_flicker.patch
 fi
 
 log "Applying BBRv3 patch"
