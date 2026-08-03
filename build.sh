@@ -185,6 +185,12 @@ patch -p1 --fuzz=3 < $KERNEL_PATCHES/kprofiles/01-cpu_boost.patch
 patch -p1 --fuzz=3 < $KERNEL_PATCHES/kprofiles/02-implement_input_handler.patch
 patch -p1 --fuzz=3 < $KERNEL_PATCHES/kprofiles/03-kprofiles.patch
 
+if [ "$DROIDSPACES" = "true" ]; then
+  log "Droidspaces support"
+  patch -p1 --fuzz=3 < $KERNEL_PATCHES/ds/fix_sysvipc_kabi_6_7_8.patch
+fi
+
+
 if [ "$KSU" = "SKSU" ]; then
   log "SukiSU-Ultra included"
   if susfs_included; then

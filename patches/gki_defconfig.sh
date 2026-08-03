@@ -219,7 +219,7 @@ CONFIG_RCU_TRACE=n
 EOF
 fi
 
-if [ "$DROIDSPACES" != "true" ]; then
+if [ "$DROIDSPACES" = "true" ]; then
   echo "🔧 Enable Droidspaces support"
   cat >> $DEFCONFIG <<EOF
 # Enable Droidspaces support
