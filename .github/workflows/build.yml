@@ -49,6 +49,11 @@ on:
         type: boolean
         default: false
 
+      BUILD_RSKSU:
+        description: "Build with ReSukiSU"
+        type: boolean
+        default: false
+
       BUILD_KSU_SUSFS:
         description: "Second Build with SUSFS"
         type: boolean
@@ -83,6 +88,7 @@ jobs:
           BUILD_KSU: ${{ github.event.inputs.BUILD_KSU }}
           BUILD_KSUN: ${{ github.event.inputs.BUILD_KSUN }}
           BUILD_SKSU: ${{ github.event.inputs.BUILD_SKSU }}
+          BUILD_RSKSU: ${{ github.event.inputs.BUILD_RSKSU }}
           BUILD_KSU_SUSFS: ${{ github.event.inputs.BUILD_KSU_SUSFS }}
           BUILD_DS: ${{ github.event.inputs.BUILD_DS }}
           BUILD_COMPAT: ${{ github.event.inputs.BUILD_COMPAT }}
@@ -94,6 +100,7 @@ jobs:
             | if env.BUILD_KSU     == "true" then . + [{"name": "KSU",     "KSU": "KSU"}] else . end
             | if env.BUILD_KSUN    == "true" then . + [{"name": "KSUN",    "KSU": "KSUN"}] else . end
             | if env.BUILD_SKSU    == "true" then . + [{"name": "SKSU",    "KSU": "SKSU"}] else . end
+            | if env.BUILD_RSKSU   == "true" then . + [{"name": "RSKSU",   "KSU": "RSKSU"}] else . end
             
             # 2. SUSFS optional hinzufügen (Verdopplung: Variante ohne + Variante mit SUSFS)
             | if env.BUILD_KSU_SUSFS == "true" then
@@ -406,7 +413,7 @@ jobs:
               echo "*No changelog available*"
             fi
             echo ""
-            echo "**Full Commit History:** [Browse all commits](https://github.com/pershoot/KernelSU-Next/commits/dev-susfs)"
+            echo "**Full Commit History:** [Browse all commits](https://github.com/KernelSU-Next/KernelSU-Next/commits/dev)"
             echo ""
             echo "---"
             echo "**SukiSU Ultra Changelog (last 10 commits):**"
@@ -418,6 +425,17 @@ jobs:
             fi
             echo ""
             echo "**Full Commit History:** [Browse all commits](https://github.com/SukiSU-Ultra/SukiSU-Ultra/commits/builtin)"
+            echo ""
+            echo "---"
+            echo "**ReSukiSU Changelog (last 10 commits):**"
+            echo ""
+            if [ -f release-artifacts/resukisu_changelog.txt ]; then
+              cat release-artifacts/resukisu_changelog.txt
+            else
+              echo "*No changelog available*"
+            fi
+            echo ""
+            echo "**Full Commit History:** [Browse all commits](https://github.com/ReSukiSU/ReSukiSU/commits/main)"
             echo ""
             echo "---"
             echo "**Checksums:**"
