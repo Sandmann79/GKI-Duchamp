@@ -192,6 +192,11 @@ if [ "$DROIDSPACES" = "true" ]; then
   patch -p1 --fuzz=3 < $KERNEL_PATCHES/ds/fix_sysvipc_kabi_6_7_8.patch
 fi
 
+if [ "$NOMOUNT" = "true" ]; then
+  log "NoMount module support"
+  curl "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" | bash -s master
+fi
+ 
 
 if [ "$KSU" = "SKSU" ]; then
   log "SukiSU-Ultra included"
@@ -216,25 +221,25 @@ if [ "$KSU" = "SKSU" ]; then
     echo "SUSFS_VERSION=$SUSFS_VERSION" >> $GITHUB_ENV
 
   fi
-
 fi
 
-if susfs_included && [ "$KSU" = "RSKSU" ]; then
+if [ "$KSU" = "RSKSU" ]; then
   log "ReSukiSU included"
   install_ksu "ReSukiSU/ReSukiSU" "main"
 
-  log "SUSFS included"
-  git clone --depth=1 -q "$SUSFS_URL" -b "$SUSFS_BRANCH" "$SUSFS_DIR"
+  if susfs_included; then
+    log "SUSFS included"
+    git clone --depth=1 -q "$SUSFS_URL" -b "$SUSFS_BRANCH" "$SUSFS_DIR"
 
-  cp -R $SUSFS_PATCHES/fs/* ./fs
-  cp -R $SUSFS_PATCHES/include/linux/* ./include/linux/
+    cp -R $SUSFS_PATCHES/fs/* ./fs
+    cp -R $SUSFS_PATCHES/include/linux/* ./include/linux/
 
-  patch -p1 --fuzz=3 < "$KERNEL_PATCHES/susfs/fs_namespace.patch"
-  patch -p1 --fuzz=3 < $SUSFS_PATCHES/50_add_susfs_in_${SUSFS_PATCH}.patch || echo "Common kernel SUSFS patch failed."
+    patch -p1 --fuzz=3 < "$KERNEL_PATCHES/susfs/fs_namespace.patch"
+    patch -p1 --fuzz=3 < $SUSFS_PATCHES/50_add_susfs_in_${SUSFS_PATCH}.patch || echo "Common kernel SUSFS patch failed."
 
-  SUSFS_VERSION=$(grep -E '^#define SUSFS_VERSION' ./include/linux/susfs.h | cut -d' ' -f3 | sed 's/"//g')
-  echo "SUSFS_VERSION=$SUSFS_VERSION" >> $GITHUB_ENV
-
+    SUSFS_VERSION=$(grep -E '^#define SUSFS_VERSION' ./include/linux/susfs.h | cut -d' ' -f3 | sed 's/"//g')
+    echo "SUSFS_VERSION=$SUSFS_VERSION" >> $GITHUB_ENV
+  fi
 fi
 
 if [ "$KSU" = "KSU" ]; then
@@ -304,13 +309,9 @@ if [ "$KSU" = "KSUN" ]; then
 
 fi
 
-if [ "$DROIDSPACES" = "true" ]; then
-  VARIANT+="+DS"
-fi
-
-if [ "$KSU_COMPAT" = "true" ]; then
-  VARIANT+="-Compat"
-fi
+[ "$DROIDSPACES" = "true" ] && VARIANT+="+DS"
+[ "$NOMOUNT" = "true" ] && VARIANT+="+NM"
+[ "$KSU_COMPAT" = "true" ] && VARIANT+="-Compat"
 
 # Replace Placeholder in zip name
 AK3_ZIP_NAME=${AK3_ZIP_NAME//KVER/$LINUX_VERSION}

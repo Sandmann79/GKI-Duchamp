@@ -12,6 +12,7 @@ CONFIG_KPM=y
 EOF
 fi
 
+
 if [ "$KSU_SUSFS" = "true" ]; then
   echo "🔧 Mode: SuSFS Hook Enabled"
   cat >> $DEFCONFIG <<EOF

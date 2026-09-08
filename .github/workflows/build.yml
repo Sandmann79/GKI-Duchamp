@@ -63,11 +63,17 @@ on:
         description: "Build with Droidspaces support"
         type: boolean
         default: true
+        
+      BUILD_NM:
+        description: "Add NoMount support"
+        type: boolean
+        default: true
 
       BUILD_COMPAT:
         description: "Build Compat Variant"
         type: boolean
         default: true
+
 
 env:
   MAN_DISABLE: true
@@ -91,6 +97,7 @@ jobs:
           BUILD_RSKSU: ${{ github.event.inputs.BUILD_RSKSU }}
           BUILD_KSU_SUSFS: ${{ github.event.inputs.BUILD_KSU_SUSFS }}
           BUILD_DS: ${{ github.event.inputs.BUILD_DS }}
+          BUILD_NM: ${{ github.event.inputs.BUILD_NM }}
           BUILD_COMPAT: ${{ github.event.inputs.BUILD_COMPAT }}
         run: |
           MATRIX_JSON=$(jq -n -c '
@@ -117,15 +124,22 @@ jobs:
               else
                 map(. + {"DROIDSPACES": "false"})
               end
+              
+            # 4. NoMount  optional hinzufügen
+            | if env.BUILD_NM == "true" then
+                map(. + {"NOMOUNT": "true", "name": (.name + "-NM")})
+              else
+                map(. + {"NOMOUNT": "false"})
+              end
 
-            # 4. COMPAT optional hinzufügen
+            # 5. COMPAT optional hinzufügen
             | if env.BUILD_COMPAT == "true" then
                 map(. + {"KSU_COMPAT": "true", "name": ("Compat-" + .name)})
               else
                 map(. + {"KSU_COMPAT": "false"})
               end
 
-            # 5. In das finale Matrix-Format verpacken
+            # 6. In das finale Matrix-Format verpacken
             | {include: .}
           ')
 
@@ -185,6 +199,7 @@ jobs:
           KSU: ${{ matrix.KSU }}
           KSU_COMPAT: ${{ matrix.KSU_COMPAT }}
           DROIDSPACES: ${{ inputs.BUILD_DS }}
+          NOMOUNT: ${{ inputs.BUILD_NM }}
           KSU_SUSFS: ${{ matrix.KSU_SUSFS }}
           STATUS: ${{ inputs.STATUS }}
           TEST: ${{ inputs.TEST }}
