@@ -177,6 +177,9 @@ fi
 log "Applying BBRv3 patch"
 patch -p1 --fuzz=3 < $KERNEL_PATCHES/bbrv3/bbrv3.patch
 
+log "Adaptive IP-Scheduler included"
+patch -p1 --fuzz=3 < $KERNEL_PATCHES/adios/adios_backport.patch
+
 log "BBG included"
 wget -qO- "https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh" | bash
 sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' "security/Kconfig"
