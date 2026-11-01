@@ -440,7 +440,7 @@ jobs:
             echo "**Full Commit History:** [Browse all commits](https://github.com/SukiSU-Ultra/SukiSU-Ultra/commits/builtin)"
             echo ""
             echo "---"
-            echo "**ReSukiSU Changelog (last 10 commits):**"
+            echo "**BakaSU Changelog (last 10 commits):**"
             echo ""
             if [ -f release-artifacts/resukisu_changelog.txt ]; then
               cat release-artifacts/resukisu_changelog.txt

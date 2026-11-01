@@ -175,7 +175,7 @@ if [[ "$KERNEL_REPO" != *"ahmed-alnassif"* ]]; then
         log "Fix screen flickering"
         patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/fix_screen_flicker.patch"
         OPT_MODS+="HyperOS support"
-    else:
+    else
         OPT_MODS+="No HyperOS support"
     fi
 fi
@@ -205,7 +205,7 @@ fi
 if [ "$NOMOUNT" = "true" ]; then
   log "NoMount module support"
   curl "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" | bash -s master
-  NM_VER=$(grep -E '^#define NOMOUNT_BASE_VERSION' $KSRC/fs/nomount/ | cut -d' ' -f3 | sed 's/"//g')
+  NM_VER=$(grep -E '^#define NOMOUNT_BASE_VERSION' $KSRC/fs/nomount/nomount.h | cut -d' ' -f3 | sed 's/"//g')
   OPT_MODS+=" / NoMount v$NM_VER"
 fi
  
