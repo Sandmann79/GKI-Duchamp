@@ -20,14 +20,14 @@ on:
         options:
           - "RELEASE"
           - "BETA"
-
-      TEST:
-        description: debug the pipeline
-        default: "no"
-        type: choice
-        options:
-          - "no"
-          - "yes"
+      TANGO:
+        description: Add Tango32 driver
+        type: boolean
+        default: false
+      HOS:
+        description: Support HyperOS
+        type: boolean
+        default: true
 
       BUILD_VANILLA:
         description: "Build Vanilla (no KSU)"
@@ -50,7 +50,7 @@ on:
         default: false
 
       BUILD_RSKSU:
-        description: "Build with ReSukiSU"
+        description: "Build with BakaSU"
         type: boolean
         default: false
 
@@ -84,7 +84,7 @@ permissions:
 
 jobs:
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -146,7 +146,7 @@ jobs:
           echo "matrix=${MATRIX_JSON}" >> $GITHUB_OUTPUT
   build:
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
@@ -202,7 +202,8 @@ jobs:
           NOMOUNT: ${{ inputs.BUILD_NM }}
           KSU_SUSFS: ${{ matrix.KSU_SUSFS }}
           STATUS: ${{ inputs.STATUS }}
-          TEST: ${{ inputs.TEST }}
+          HOS: ${{ inputs.HOS }}
+          TANGO: ${{ inputs.TANGO }}
           BUILD_NAME: ${{ matrix.name }}
           RUN_NUM: -r${{ github.run_number }}
         run: |
@@ -231,6 +232,8 @@ jobs:
           BASE_NAME=${{ env.BASE_NAME }}
           KSU=${{ matrix.KSU }}
           KSU_SUSFS=${{ matrix.KSU_SUSFS }}
+          HOS=${{ inputs.HOS }}
+          TANGO=${{ inputs.TANGO }}
           EOF
 
           echo "BUILD_VARIANT=${{ matrix.name }}" >> build-env-${{ matrix.name }}.txt
@@ -255,7 +258,7 @@ jobs:
   upload-all:
     needs: build
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v8
@@ -275,7 +278,7 @@ jobs:
   release:
     needs: build
     if: github.event.inputs.STATUS == 'RELEASE'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout source
         uses: actions/checkout@v6
@@ -302,7 +305,7 @@ jobs:
           # Set defaults
           echo "KSU=Not included" >> $GITHUB_ENV
           echo "KSU_SUSFS=Not included" >> $GITHUB_ENV
-          echo "SUSFS_VERSION=Not included" >> $GITHUB_ENV
+          echo "SUSFS_VERSION=None included" >> $GITHUB_ENV
 
           # Load values from any file
           SUSFS_FILE=""
@@ -338,11 +341,6 @@ jobs:
             VARIANTS=$(ls release-artifacts/*.zip 2>/dev/null | xargs -n1 basename | sed 's/.zip//')
 
             {
-            if [ "${{ inputs.TEST }}" = "yes"  ];then
-              echo ">[!warning]"
-              echo ">This is empty testing release don't download/install anything from here!"
-              echo ""
-            fi
             cat << EOF
             ### 📢 ${{ env.RELEASE_NAME }}
 
@@ -353,7 +351,7 @@ jobs:
             - 🔖 **Version:** ${{ env.LINUX_VERSION }} (android14-6.1-lts)
             - 📦 **Variants:**
             $(echo "$VARIANTS" | sed 's/^/  - /')
-            - 🛡️ **SuSFS:** ඞ ${{ env.SUSFS_VERSION }}
+            - 🛡️ **Features:** ඞ ${{ env.SUSFS_VERSION }}
             - ⚙️ **Compiler:** ${{ env.COMPILER_STRING }}
 
             >[!Important]

@@ -24,6 +24,7 @@ AK3_ZIP_NAME="$KERNEL_NAME-REL-KVER-VARIANT-BUILD_DATE.zip"
 OUTDIR="$WORKDIR/out"
 KSRC="$WORKDIR/ksrc"
 KERNEL_PATCHES="$WORKDIR/kernel-patches"
+OPT_MODS=""
 
 # Import functions
 source $WORKDIR/functions.sh
@@ -57,7 +58,7 @@ cd $WORKDIR
 log "Setting Kernel variant..."
 case "$KSU" in
   "SKSU") VARIANT="SukiSU-Ultra" ;;
-  "RSKSU") VARIANT="ReSukiSU" ;;
+  "RSKSU") VARIANT="BakaSU" ;;
   "KSU") VARIANT="KernelSU" ;;
   "KSUN") VARIANT="KernelSU-Next" ;;
   "no") VARIANT="Vanilla" ;;
@@ -81,7 +82,7 @@ gh api 'repos/SukiSU-Ultra/SukiSU-Ultra/commits?sha=builtin&per_page=10' --jq '.
 > "$RELEASE_DIR/sukisu_changelog.txt"
 gh api 'repos/KernelSU-Next/KernelSU-Next/commits?sha=dev&per_page=10' --jq '.[] | "- [" + .sha[0:7] + "](" + .html_url + ") " + (.commit.message | split("\n")[0])'\
 > "$RELEASE_DIR/ksun_changelog.txt"
-gh api 'repos/ReSukiSU/ReSukiSU/commits?sha=main&per_page=10' --jq '.[] | "- [" + .sha[0:7] + "](" + .html_url + ") " + (.commit.message | split("\n")[0])'\
+gh api 'repos/Baka-SU/BakaSU/commits?sha=main&per_page=10' --jq '.[] | "- [" + .sha[0:7] + "](" + .html_url + ") " + (.commit.message | split("\n")[0])'\
 > "$RELEASE_DIR/resukisu_changelog.txt"
 
 # Download Clang
@@ -168,16 +169,21 @@ if [[ "$KERNEL_REPO" != *"ahmed-alnassif"* ]]; then
     patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/unicode_bypass_fix_6.1.patch"
     
     log "Applying Bore scheduler"
-    patch -p1 --fuzz=3 < $KERNEL_PATCHES/bore/bore_sched.patch
+    patch -p1 --fuzz=3 < "$KERNEL_PATCHES/bore/bore_sched.patch"
     
-    log "Fix screen flickering"
-    patch -p1 --fuzz=3 < $KERNEL_PATCHES/common/fix_screen_flicker.patch
+    if [ "$HOS" = "true" ]; then
+        log "Fix screen flickering"
+        patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/fix_screen_flicker.patch"
+        OPT_MODS+="HyperOS support"
+    else:
+        OPT_MODS+="No HyperOS support"
+    fi
 fi
 
 log "Applying BBRv3 patch"
 patch -p1 --fuzz=3 < $KERNEL_PATCHES/bbrv3/bbrv3.patch
 
-log "Adaptive IP-Scheduler included"
+log "Adaptive IO-Scheduler included"
 patch -p1 --fuzz=3 < $KERNEL_PATCHES/adios/adios_backport.patch
 
 log "BBG included"
@@ -193,13 +199,23 @@ patch -p1 --fuzz=3 < $KERNEL_PATCHES/kprofiles/03-kprofiles.patch
 if [ "$DROIDSPACES" = "true" ]; then
   log "Droidspaces support"
   patch -p1 --fuzz=3 < $KERNEL_PATCHES/ds/fix_sysvipc_kabi_6_7_8.patch
+  OPT_MODS+=" / Droidspaces"
 fi
 
 if [ "$NOMOUNT" = "true" ]; then
   log "NoMount module support"
   curl "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" | bash -s master
+  NM_VER=$(grep -E '^#define NOMOUNT_BASE_VERSION' $KSRC/fs/nomount/ | cut -d' ' -f3 | sed 's/"//g')
+  OPT_MODS+=" / NoMount v$NM_VER"
 fi
  
+if [ "$TANGO" = "true" ]; then
+    log "Adding Tango32 driver"
+    git clone --depth=1 -q "https://github.com/AmanieuSystems/tango32-module" "$KSRC/drivers/tango32"
+    echo 'obj-$(CONFIG_TANGO32) += tango32/' >> "$KSRC/drivers/Makefile"
+    sed -i '/endmenu/i source "drivers/tango32/Kconfig"' "$KSRC/drivers/Kconfig"
+    OPT_MODS+=" / Tango32 "
+fi
 
 if [ "$KSU" = "SKSU" ]; then
   log "SukiSU-Ultra included"
@@ -219,16 +235,12 @@ if [ "$KSU" = "SKSU" ]; then
 
     patch -p1 --fuzz=3 < "$KERNEL_PATCHES/susfs/fs_namespace.patch"
     patch -p1 --fuzz=3 < $SUSFS_PATCHES/50_add_susfs_in_${SUSFS_PATCH}.patch || echo "Common kernel SUSFS patch failed."
-
-    SUSFS_VERSION=$(grep -E '^#define SUSFS_VERSION' ./include/linux/susfs.h | cut -d' ' -f3 | sed 's/"//g')
-    echo "SUSFS_VERSION=$SUSFS_VERSION" >> $GITHUB_ENV
-
   fi
 fi
 
 if [ "$KSU" = "RSKSU" ]; then
-  log "ReSukiSU included"
-  install_ksu "ReSukiSU/ReSukiSU" "main"
+  log "BakaSU included"
+  install_ksu "Baka-SU/BakaSU" "main"
 
   if susfs_included; then
     log "SUSFS included"
@@ -239,9 +251,6 @@ if [ "$KSU" = "RSKSU" ]; then
 
     patch -p1 --fuzz=3 < "$KERNEL_PATCHES/susfs/fs_namespace.patch"
     patch -p1 --fuzz=3 < $SUSFS_PATCHES/50_add_susfs_in_${SUSFS_PATCH}.patch || echo "Common kernel SUSFS patch failed."
-
-    SUSFS_VERSION=$(grep -E '^#define SUSFS_VERSION' ./include/linux/susfs.h | cut -d' ' -f3 | sed 's/"//g')
-    echo "SUSFS_VERSION=$SUSFS_VERSION" >> $GITHUB_ENV
   fi
 fi
 
@@ -280,9 +289,6 @@ if [ "$KSU" = "KSU" ]; then
     patch -p1 --fuzz=3 < "$KERNEL_PATCHES/susfs/fs_namespace.patch"
     patch -p1 --fuzz=3 < $SUSFS_PATCHES/50_add_susfs_in_${SUSFS_PATCH}.patch || echo "Common kernel SUSFS patch failed."
 
-    SUSFS_VERSION=$(grep -E '^#define SUSFS_VERSION' ./include/linux/susfs.h | cut -d' ' -f3 | sed 's/"//g')
-    echo "SUSFS_VERSION=$SUSFS_VERSION" >> $GITHUB_ENV
-
   fi
 
 fi
@@ -304,16 +310,16 @@ if [ "$KSU" = "KSUN" ]; then
 
     patch -p1 --fuzz=3 < "$KERNEL_PATCHES/susfs/fs_namespace.patch"
     patch -p1 --fuzz=3 < $SUSFS_PATCHES/50_add_susfs_in_${SUSFS_PATCH}.patch || echo "Common kernel SUSFS patch failed."
-
-    SUSFS_VERSION=$(grep -E '^#define SUSFS_VERSION' ./include/linux/susfs.h | cut -d' ' -f3 | sed 's/"//g')
-    echo "SUSFS_VERSION=$SUSFS_VERSION" >> $GITHUB_ENV
-
   fi
-
 fi
 
-[ "$DROIDSPACES" = "true" ] && VARIANT+="+DS"
-[ "$NOMOUNT" = "true" ] && VARIANT+="+NM"
+if susfs_included; then
+    SUSFS_VERSION=$(grep -E '^#define SUSFS_VERSION' ./include/linux/susfs.h | cut -d' ' -f3 | sed 's/"//g')
+    OPT_MODS+=" / SuSFS v$SUSFS_VERSION"
+fi
+
+echo "SUSFS_VERSION=$OPT_MODS" >> $GITHUB_ENV
+
 [ "$KSU_COMPAT" = "true" ] && VARIANT+="-Compat"
 
 # Replace Placeholder in zip name
@@ -379,14 +385,6 @@ if susfs_included; then
     grep "depends on" $(find . -name "Kconfig" -exec grep -l "KSU_SUSFS" {} \;) 2>/dev/null || echo "No dependency info found"
   fi
 
-fi
-
-# Test
-if [ "$TEST" = "yes" ]; then
-  log pipeline test done
-  mkdir -p "$RELEASE_DIR"
-  echo "test-${VARIANT}" > "$RELEASE_DIR/test-${VARIANT}.zip"
-  exit 0
 fi
 
 log "Copying defconfig..."
