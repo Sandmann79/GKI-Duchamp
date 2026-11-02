@@ -20,12 +20,9 @@ on:
         options:
           - "RELEASE"
           - "BETA"
-      TANGO:
-        description: Add Tango32 driver
-        type: boolean
-        default: false
-      HOS:
-        description: Support HyperOS
+
+      PATCHSET:
+        description: "Tuning/Performance Patches"
         type: boolean
         default: true
 
@@ -202,8 +199,7 @@ jobs:
           NOMOUNT: ${{ inputs.BUILD_NM }}
           KSU_SUSFS: ${{ matrix.KSU_SUSFS }}
           STATUS: ${{ inputs.STATUS }}
-          HOS: ${{ inputs.HOS }}
-          TANGO: ${{ inputs.TANGO }}
+          PATCHSET: ${{ inputs.PATCHSET }}
           BUILD_NAME: ${{ matrix.name }}
           RUN_NUM: -r${{ github.run_number }}
         run: |
@@ -232,8 +228,7 @@ jobs:
           BASE_NAME=${{ env.BASE_NAME }}
           KSU=${{ matrix.KSU }}
           KSU_SUSFS=${{ matrix.KSU_SUSFS }}
-          HOS=${{ inputs.HOS }}
-          TANGO=${{ inputs.TANGO }}
+          PATCHSET=${{ inputs.PATCHSET }}
           EOF
 
           echo "BUILD_VARIANT=${{ matrix.name }}" >> build-env-${{ matrix.name }}.txt
@@ -351,7 +346,7 @@ jobs:
             - 🔖 **Version:** ${{ env.LINUX_VERSION }} (android14-6.1-lts)
             - 📦 **Variants:**
             $(echo "$VARIANTS" | sed 's/^/  - /')
-            - 🛡️ **Features:** ඞ ${{ env.SUSFS_VERSION }}
+            - 🛡️ **Features:** ${{ env.SUSFS_VERSION }}
             - ⚙️ **Compiler:** ${{ env.COMPILER_STRING }}
 
             >[!Important]

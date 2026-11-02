@@ -118,7 +118,7 @@ echo "COMPILER_STRING=$COMPILER_STRING" >> $GITHUB_ENV
 
 cd $KSRC
 
-if [[ "$KERNEL_REPO" != *"ahmed-alnassif"* ]]; then
+if [ "$PATCHSET" = "true" ]; then
     log "Fix compilation error"
     patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/fix_key_pass_declaration.patch"
     
@@ -171,30 +171,29 @@ if [[ "$KERNEL_REPO" != *"ahmed-alnassif"* ]]; then
     log "Applying Bore scheduler"
     patch -p1 --fuzz=3 < "$KERNEL_PATCHES/bore/bore_sched.patch"
     
-    if [ "$HOS" = "true" ]; then
-        log "Fix screen flickering"
-        patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/fix_screen_flicker.patch"
-        OPT_MODS+="HyperOS support"
-    else
-        OPT_MODS+="No HyperOS support"
-    fi
+    log "Fix screen flickering"
+    patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/fix_screen_flicker.patch"
+    
+    log "Applying BBRv3 patch"
+    patch -p1 --fuzz=3 < $KERNEL_PATCHES/bbrv3/bbrv3.patch
+
+    log "Adaptive IO-Scheduler included"
+    patch -p1 --fuzz=3 < $KERNEL_PATCHES/adios/adios_backport.patch
+
+    log "BBG included"
+    wget -qO- "https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh" | bash
+    sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' "security/Kconfig"
+
+    log "Applying Kprofiles"
+    git clone --depth=1 -q "https://github.com/beakthoven/Kprofiles" "$KSRC/drivers/kprofiles"
+    patch -p1 --fuzz=3 < $KERNEL_PATCHES/kprofiles/01-cpu_boost.patch
+    patch -p1 --fuzz=3 < $KERNEL_PATCHES/kprofiles/02-implement_input_handler.patch
+    patch -p1 --fuzz=3 < $KERNEL_PATCHES/kprofiles/03-kprofiles.patch
+    
+    OPT_MODS+="Various Patches"
+else
+    OPT_MODS+="without Patches"
 fi
-
-log "Applying BBRv3 patch"
-patch -p1 --fuzz=3 < $KERNEL_PATCHES/bbrv3/bbrv3.patch
-
-log "Adaptive IO-Scheduler included"
-patch -p1 --fuzz=3 < $KERNEL_PATCHES/adios/adios_backport.patch
-
-log "BBG included"
-wget -qO- "https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh" | bash
-sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' "security/Kconfig"
-
-log "Applying Kprofiles"
-git clone --depth=1 -q "https://github.com/beakthoven/Kprofiles" "$KSRC/drivers/kprofiles"
-patch -p1 --fuzz=3 < $KERNEL_PATCHES/kprofiles/01-cpu_boost.patch
-patch -p1 --fuzz=3 < $KERNEL_PATCHES/kprofiles/02-implement_input_handler.patch
-patch -p1 --fuzz=3 < $KERNEL_PATCHES/kprofiles/03-kprofiles.patch
 
 if [ "$DROIDSPACES" = "true" ]; then
   log "Droidspaces support"
@@ -209,18 +208,9 @@ if [ "$NOMOUNT" = "true" ]; then
   OPT_MODS+=" / NoMount v$NM_VER"
 fi
  
-if [ "$TANGO" = "true" ]; then
-    log "Adding Tango32 driver"
-    git clone --depth=1 -q "https://github.com/AmanieuSystems/tango32-module" "$KSRC/drivers/tango32"
-    echo 'obj-$(CONFIG_TANGO32) += tango32/' >> "$KSRC/drivers/Makefile"
-    sed -i '/endmenu/i source "drivers/tango32/Kconfig"' "$KSRC/drivers/Kconfig"
-    OPT_MODS+=" / Tango32 "
-fi
-
 if [ "$KSU" = "SKSU" ]; then
   log "SukiSU-Ultra included"
   if susfs_included; then
-    #install_ksu "ahmed-alnassif/SukiSU-Ultra" "builtin"
     install_ksu "SukiSU-Ultra/SukiSU-Ultra" "builtin"
   else
     install_ksu "SukiSU-Ultra/SukiSU-Ultra" "main"
