@@ -195,6 +195,13 @@ else
     OPT_MODS+="without Patches"
 fi
 
+if [[ "$KERNEL_REPO" == *"GuidixX"* ]]; then
+    log "Adaptive IO-Scheduler included"
+    patch -p1 --fuzz=3 < $KERNEL_PATCHES/adios/adios_backport.patch
+    log "Fix screen flickering"
+    patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/fix_screen_flicker.patch"
+fi
+
 if [ "$DROIDSPACES" = "true" ]; then
   log "Droidspaces support"
   patch -p1 --fuzz=3 < $KERNEL_PATCHES/ds/fix_sysvipc_kabi_6_7_8.patch
@@ -320,7 +327,7 @@ log "Patching custom configs..."
 source $WORKDIR/patches/gki_defconfig.sh
 
 # set localversion
-if [ "${TODO:-kernel}" = "kernel" ]; then
+if [ "${TODO:-kernel}" = "kernel" -a "$PATCHSET" = "true" ]; then
   LATEST_COMMIT_HASH=$(git rev-parse --short HEAD)
   if [ "$STATUS" = "BETA" ]; then
     SUFFIX="$LATEST_COMMIT_HASH"
