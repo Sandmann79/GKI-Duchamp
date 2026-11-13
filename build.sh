@@ -175,10 +175,10 @@ if [ "$PATCHSET" = "true" ]; then
     patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/fix_screen_flicker.patch"
     
     log "Applying BBRv3 patch"
-    patch -p1 --fuzz=3 < $KERNEL_PATCHES/bbrv3/bbrv3.patch
+    patch -p1 --fuzz=3 < "$KERNEL_PATCHES/bbrv3/bbrv3.patch"
 
     log "Adaptive IO-Scheduler included"
-    patch -p1 --fuzz=3 < $KERNEL_PATCHES/adios/adios_backport.patch
+    patch -p1 --fuzz=3 < "$KERNEL_PATCHES/adios/adios_backport.patch"
 
     log "BBG included"
     wget -qO- "https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh" | bash
@@ -186,9 +186,9 @@ if [ "$PATCHSET" = "true" ]; then
 
     log "Applying Kprofiles"
     git clone --depth=1 -q "https://github.com/beakthoven/Kprofiles" "$KSRC/drivers/kprofiles"
-    patch -p1 --fuzz=3 < $KERNEL_PATCHES/kprofiles/01-cpu_boost.patch
-    patch -p1 --fuzz=3 < $KERNEL_PATCHES/kprofiles/02-implement_input_handler.patch
-    patch -p1 --fuzz=3 < $KERNEL_PATCHES/kprofiles/03-kprofiles.patch
+    patch -p1 --fuzz=3 < "$KERNEL_PATCHES/kprofiles/01-cpu_boost.patch"
+    patch -p1 --fuzz=3 < "$KERNEL_PATCHES/kprofiles/02-implement_input_handler.patch"
+    patch -p1 --fuzz=3 < "$KERNEL_PATCHES/kprofiles/03-kprofiles.patch"
     
     OPT_MODS+="Various Patches"
 else
@@ -196,10 +196,22 @@ else
 fi
 
 if [[ "$KERNEL_REPO" == *"GuidixX"* ]]; then
-    log "Adaptive IO-Scheduler included"
-    patch -p1 --fuzz=3 < $KERNEL_PATCHES/adios/adios_backport.patch
+    log "Fix compilation error"
+    patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/fix_key_pass_declaration.patch"   
+    log "Removing Modules check"
+    patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/remove_protected_gki_modules.patch"
+    patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/disable_crc_checks.patch"
+    log "Applying Bore scheduler"
+    patch -p1 --fuzz=3 < "$KERNEL_PATCHES/bore/bore_sched.patch"
     log "Fix screen flickering"
     patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/fix_screen_flicker.patch"
+    log "Applying BBRv3 patch"
+    patch -p1 --fuzz=3 < "$KERNEL_PATCHES/bbrv3/bbrv3.patch"
+    log "Adaptive IO-Scheduler included"
+    patch -p1 --fuzz=3 < "$KERNEL_PATCHES/adios/adios_backport.patch"
+    log "BBG included"
+    wget -qO- "https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh" | bash
+    sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' "security/Kconfig"
 fi
 
 if [ "$DROIDSPACES" = "true" ]; then
