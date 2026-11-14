@@ -10,7 +10,7 @@ HOST="GKI-Peridot"
 TIMEZONE="Asia/Damascus"
 ANYKERNEL_REPO="https://github.com/ahmed-alnassif/AK3-GKID"
 
-KERNEL_DEFCONFIG="gki_defconfig"
+KERNEL_DEFCONFIG=(gki_defconfig vendor/pineapple_GKI.config vendor/peridot_GKI.config)
 
 # Set timezone
 sudo timedatectl set-timezone "$TIMEZONE" || export TZ="$TIMEZONE"
@@ -75,15 +75,10 @@ log "Changelog of repos"
 if [[ "$KERNEL_REPO" == *"github.com"* ]]; then
     gh api "repos/$(echo $KERNEL_REPO | cut -d/ -f4-)/commits?sha=${KERNEL_BRANCH}&per_page=10" --jq '.[] | "- [" + .sha[0:7] + "](" + .html_url + ") " + (.commit.message | split("\n")[0])'\
     > "$RELEASE_DIR/android_kernel-6.1_changelog.txt"
+else
+    curl -s "${KERNEL_REPO}/+log/refs/heads/${KERNEL_BRANCH}?format=JSON&n=10" | tail -n +2 | jq -r '.log[] | "- [\(.commit[0:7])](${KERNEL_REPO}/+/\(.commit)) \(.message | split("\n")[0])"'\
+    > "$RELEASE_DIR/android_kernel-6.1_changelog.txt"
 fi
-gh api 'repos/tiann/KernelSU/commits?sha=main&per_page=10' --jq '.[] | "- [" + .sha[0:7] + "](" + .html_url + ") " + (.commit.message | split("\n")[0])'\
-> "$RELEASE_DIR/ksu_changelog.txt"
-gh api 'repos/SukiSU-Ultra/SukiSU-Ultra/commits?sha=builtin&per_page=10' --jq '.[] | "- [" + .sha[0:7] + "](" + .html_url + ") " + (.commit.message | split("\n")[0])'\
-> "$RELEASE_DIR/sukisu_changelog.txt"
-gh api 'repos/KernelSU-Next/KernelSU-Next/commits?sha=dev&per_page=10' --jq '.[] | "- [" + .sha[0:7] + "](" + .html_url + ") " + (.commit.message | split("\n")[0])'\
-> "$RELEASE_DIR/ksun_changelog.txt"
-gh api 'repos/Baka-SU/BakaSU/commits?sha=main&per_page=10' --jq '.[] | "- [" + .sha[0:7] + "](" + .html_url + ") " + (.commit.message | split("\n")[0])'\
-> "$RELEASE_DIR/resukisu_changelog.txt"
 
 # Download Clang
 log "Downloading Clang..."
@@ -196,13 +191,10 @@ else
 fi
 
 if [[ "$KERNEL_REPO" == *"GuidixX"* ]]; then
-    log "Fix compilation error"
-    patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/fix_key_pass_declaration.patch"   
     log "Removing Modules check"
-    patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/remove_protected_gki_modules.patch"
-    patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/disable_crc_checks.patch"
-    log "Applying Bore scheduler"
-    patch -p1 --fuzz=3 < "$KERNEL_PATCHES/bore/bore_sched.patch"
+    patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/disable_crc_chidori.patch"
+    rm ./android/abi_gki_protected_exports_aarch64
+    rm ./android/abi_gki_protected_exports_x86_64
     log "Fix screen flickering"
     patch -p1 --fuzz=3 < "$KERNEL_PATCHES/common/fix_screen_flicker.patch"
     log "Applying BBRv3 patch"
@@ -229,6 +221,8 @@ fi
  
 if [ "$KSU" = "SKSU" ]; then
   log "SukiSU-Ultra included"
+  gh api 'repos/SukiSU-Ultra/SukiSU-Ultra/commits?sha=builtin&per_page=10' --jq '.[] | "- [" + .sha[0:7] + "](" + .html_url + ") " + (.commit.message | split("\n")[0])' > "$RELEASE_DIR/sukisu_changelog.txt"
+
   if susfs_included; then
     install_ksu "SukiSU-Ultra/SukiSU-Ultra" "builtin"
   else
@@ -249,6 +243,7 @@ fi
 
 if [ "$KSU" = "RSKSU" ]; then
   log "BakaSU included"
+  gh api 'repos/Baka-SU/BakaSU/commits?sha=main&per_page=10' --jq '.[] | "- [" + .sha[0:7] + "](" + .html_url + ") " + (.commit.message | split("\n")[0])' > "$RELEASE_DIR/resukisu_changelog.txt"
   install_ksu "Baka-SU/BakaSU" "main"
 
   if susfs_included; then
@@ -265,6 +260,8 @@ fi
 
 if [ "$KSU" = "KSU" ]; then
   log "KernelSU included"
+  gh api 'repos/tiann/KernelSU/commits?sha=main&per_page=10' --jq '.[] | "- [" + .sha[0:7] + "](" + .html_url + ") " + (.commit.message | split("\n")[0])' > "$RELEASE_DIR/ksu_changelog.txt"
+
   if ! susfs_included; then
     install_ksu "tiann/KernelSU" "main"
   fi
@@ -304,6 +301,8 @@ fi
 
 if [ "$KSU" = "KSUN" ]; then
   log "KernelSU-Next included"
+  gh api 'repos/KernelSU-Next/KernelSU-Next/commits?sha=dev&per_page=10' --jq '.[] | "- [" + .sha[0:7] + "](" + .html_url + ") " + (.commit.message | split("\n")[0])' > "$RELEASE_DIR/ksun_changelog.txt"
+
   if susfs_included; then
     install_ksu "pershoot/KernelSU-Next" "dev-susfs"
   else
@@ -328,8 +327,6 @@ if susfs_included; then
 fi
 
 echo "SUSFS_VERSION=$OPT_MODS" >> $GITHUB_ENV
-
-[ "$KSU_COMPAT" = "true" ] && VARIANT+="-Compat"
 
 # Replace Placeholder in zip name
 AK3_ZIP_NAME=${AK3_ZIP_NAME//KVER/$LINUX_VERSION}
@@ -372,14 +369,14 @@ KMI_CHECK="$WORKDIR/py/kmi-check-6.x.py"
 
 ## Build GKI
 log "Generating config..."
-make ${MAKE_ARGS[@]} "$KERNEL_DEFCONFIG"
+make ${MAKE_ARGS[@]} "${KERNEL_DEFCONFIG[@]}"
 
 
 # SUSFS debugging
 if susfs_included; then
 
   log "=== DEBUG: Checking defconfig for SUSFS ==="
-  grep -i susfs ./arch/arm64/configs/gki_defconfig || echo "❌ SUSFS NOT FOUND in defconfig!"
+  grep -i susfs $DEFCONFIG_FILE || echo "❌ SUSFS NOT FOUND in defconfig!"
   echo ""
 
   # DEBUG: Check if SUSFS made it to .config
@@ -389,7 +386,7 @@ if susfs_included; then
   echo ""
 
   # If SUSFS is in defconfig but not in .config, check dependencies
-  if grep -q "CONFIG_KSU_SUSFS" ./arch/arm64/configs/gki_defconfig && ! grep -q "CONFIG_KSU_SUSFS=y" $OUTDIR/.config; then
+  if grep -q "CONFIG_KSU_SUSFS" $DEFCONFIG_FILE && ! grep -q "CONFIG_KSU_SUSFS=y" $OUTDIR/.config; then
     log "⚠️ SUSFS in defconfig but not in .config - checking dependencies..."
     grep "depends on" $(find . -name "Kconfig" -exec grep -l "KSU_SUSFS" {} \;) 2>/dev/null || echo "No dependency info found"
   fi
