@@ -210,16 +210,6 @@ CONFIG_IP6_NF_MATCH_HL=y
 CONFIG_BBG=y
 EOF
 
-if [ "$KSU_COMPAT" != "true" ]; then
-  echo "🔧 Disable useless debugging configs for performance and resources"
-  cat >> $DEFCONFIG <<EOF
-# Disable useless debugging configs for performance and resources
-CONFIG_UBSAN=n
-CONFIG_PAGE_OWNER=n
-CONFIG_RCU_TRACE=n
-EOF
-fi
-
 if [ "$DROIDSPACES" = "true" ]; then
   echo "🔧 Enable Droidspaces support"
   cat >> $DEFCONFIG <<EOF
@@ -264,8 +254,3 @@ CONFIG_MODULE_COMPRESS=n
 CONFIG_TRIM_UNUSED_KSYMS=n
 EOF
 
-if [ "$TANGO" = "true" ]; then
-  cat >> $DEFCONFIG <<EOF
-CONFIG_TANGO32=y
-EOF
-fi

@@ -66,12 +66,6 @@ on:
         type: boolean
         default: true
 
-      BUILD_COMPAT:
-        description: "Build Compat Variant"
-        type: boolean
-        default: true
-
-
 env:
   MAN_DISABLE: true
   DEBIAN_FRONTEND: noninteractive
@@ -129,14 +123,7 @@ jobs:
                 map(. + {"NOMOUNT": "false"})
               end
 
-            # 5. COMPAT optional hinzufügen
-            | if env.BUILD_COMPAT == "true" then
-                map(. + {"KSU_COMPAT": "true", "name": ("Compat-" + .name)})
-              else
-                map(. + {"KSU_COMPAT": "false"})
-              end
-
-            # 6. In das finale Matrix-Format verpacken
+            # 5. In das finale Matrix-Format verpacken
             | {include: .}
           ')
 
@@ -194,7 +181,6 @@ jobs:
           KERNEL_REPO: ${{ inputs.REPO }}
           KERNEL_BRANCH: ${{ inputs.BRANCH }}
           KSU: ${{ matrix.KSU }}
-          KSU_COMPAT: ${{ matrix.KSU_COMPAT }}
           DROIDSPACES: ${{ inputs.BUILD_DS }}
           NOMOUNT: ${{ inputs.BUILD_NM }}
           KSU_SUSFS: ${{ matrix.KSU_SUSFS }}
@@ -353,7 +339,7 @@ jobs:
             >- Got a bootloop? Switch to a Compat variant.
 
             **Performance & Efficiency Tweaks**
-            Balanced optimizations for smoother UI, better multitasking & gaming on Poco X6 Pro (and similar **6.1.xx-android14** GKI kernel devices):
+            Balanced optimizations for smoother UI, better multitasking & gaming on Poco F6 (and similar **6.1.xx-android14** GKI kernel devices):
 
             - Timer frequency **HZ=300** → noticeably lower input lag & snappier feel
             - CPU governors: **schedutil** + **ondemand** → efficient & responsive scaling
@@ -386,7 +372,7 @@ jobs:
             Test both and choose the suitable one for your network.
 
             ---
-            **Android14-6.1-LTS Kernel Changelog (last 10 commits):**
+            **Kernel Changelog (last 10 commits):**
             EOF
             echo ""
             if [ -f release-artifacts/android_kernel-6.1_changelog.txt ]; then
@@ -400,50 +386,42 @@ jobs:
             else
                 echo "**Full Commit History:** [Browse all commits](${{ inputs.REPO }}/commits/${{ inputs.BRANCH }})"
             fi
-            echo ""
-            echo "---"
-            echo "**KernelSU Changelog (last 10 commits):**"
-            echo ""
             if [ -f release-artifacts/ksu_changelog.txt ]; then
+              echo ""
+              echo "---"
+              echo "**KernelSU Changelog (last 10 commits):**"
+              echo ""
               cat release-artifacts/ksu_changelog.txt
-            else
-              echo "*No changelog available*"
+              echo ""
+              echo "**Full Commit History:** [Browse all commits](https://github.com/tiann/KernelSU/commits/main)"
             fi
-            echo ""
-            echo "**Full Commit History:** [Browse all commits](https://github.com/tiann/KernelSU/commits/main)"
-            echo ""
-            echo "---"
-            echo "**KernelSU Next Changelog (last 10 commits):**"
-            echo ""
             if [ -f release-artifacts/ksun_changelog.txt ]; then
+              echo ""
+              echo "---"
+              echo "**KernelSU Next Changelog (last 10 commits):**"
+              echo ""
               cat release-artifacts/ksun_changelog.txt
-            else
-              echo "*No changelog available*"
+              echo ""
+              echo "**Full Commit History:** [Browse all commits](https://github.com/KernelSU-Next/KernelSU-Next/commits/dev)"
             fi
-            echo ""
-            echo "**Full Commit History:** [Browse all commits](https://github.com/KernelSU-Next/KernelSU-Next/commits/dev)"
-            echo ""
-            echo "---"
-            echo "**SukiSU Ultra Changelog (last 10 commits):**"
-            echo ""
             if [ -f release-artifacts/sukisu_changelog.txt ]; then
+              echo ""
+              echo "---"
+              echo "**SukiSU Ultra Changelog (last 10 commits):**"
+              echo ""
               cat release-artifacts/sukisu_changelog.txt
-            else
-              echo "*No changelog available*"
+              echo ""
+              echo "**Full Commit History:** [Browse all commits](https://github.com/SukiSU-Ultra/SukiSU-Ultra/commits/builtin)"
             fi
-            echo ""
-            echo "**Full Commit History:** [Browse all commits](https://github.com/SukiSU-Ultra/SukiSU-Ultra/commits/builtin)"
-            echo ""
-            echo "---"
-            echo "**BakaSU Changelog (last 10 commits):**"
-            echo ""
             if [ -f release-artifacts/resukisu_changelog.txt ]; then
+              echo ""
+              echo "---"
+              echo "**BakaSU Changelog (last 10 commits):**"
+              echo ""
               cat release-artifacts/resukisu_changelog.txt
-            else
-              echo "*No changelog available*"
+              echo ""
+              echo "**Full Commit History:** [Browse all commits](https://github.com/ReSukiSU/ReSukiSU/commits/main)"
             fi
-            echo ""
-            echo "**Full Commit History:** [Browse all commits](https://github.com/ReSukiSU/ReSukiSU/commits/main)"
             echo ""
             echo "---"
             echo "**Checksums:**"
